@@ -19,7 +19,7 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 
 ## 安装
 
-1. 安装 `GeoLocation-1.2.0-debug-*.apk`，Android 11 或更高版本。
+1. 安装 `GeoLocation-1.2.1-debug-*.apk`，Android 11 或更高版本。
 2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
 3. 打开 GeoLocation，在“受影响的应用”中选择测试目标。切换作用域后重新启动目标应用。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。

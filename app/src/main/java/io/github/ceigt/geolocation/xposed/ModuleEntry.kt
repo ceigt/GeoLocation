@@ -6,7 +6,6 @@ import android.widget.Toast
 import io.github.ceigt.geolocation.data.REMOTE_PREFS_GROUP
 import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
 import io.github.ceigt.geolocation.xposed.hooks.LocationApiHooks
-import io.github.ceigt.geolocation.xposed.hooks.PhoneServicesHooks
 import io.github.ceigt.geolocation.xposed.hooks.SystemServicesHooks
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
 import io.github.ceigt.geolocation.xposed.utils.PreferencesUtil
@@ -24,7 +23,6 @@ class ModuleEntry : XposedModule() {
 
     private var locationApiHooks: LocationApiHooks? = null
     private var systemServicesHooks: SystemServicesHooks? = null
-    private var phoneServicesHooks: PhoneServicesHooks? = null
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         log(Log.INFO, TAG, "onModuleLoaded: ${param.processName}")
@@ -49,9 +47,10 @@ class ModuleEntry : XposedModule() {
         LocationUtil.targetPackageName = param.packageName
 
         if (param.packageName == PHONE_PACKAGE) {
-            // Telephony process: only the cell/Wi-Fi telephony spoofing belongs here. We deliberately
-            // skip LocationApiHooks so we don't fake com.android.phone's own location requests.
-            phoneServicesHooks = PhoneServicesHooks(this, param.classLoader).also { it.initHooks() }
+            // Keep telephony callbacks intact. Tencent and other network-location clients need
+            // cell updates to establish a fix; clearing them can prevent any location result.
+            // We still skip app-level location hooks in the phone process itself.
+            log(Log.INFO, TAG, "Skipping hooks for the telephony process in compatibility mode.")
         } else if (param.packageName == MANAGER_APP_PACKAGE_NAME) {
             // The manager must always read the device's real location for the “My location” map
             // control. This also protects users who accidentally add the manager to Xposed scope.

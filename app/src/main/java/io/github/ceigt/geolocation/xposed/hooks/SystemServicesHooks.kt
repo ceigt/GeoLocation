@@ -82,11 +82,13 @@ class SystemServicesHooks(
 
         hookAll(serviceClass, "getCurrentLocation") { chain ->
             if (shouldSpoofArgs(chain.args)) {
-                logSystemLocationEvent { "Blocked getCurrentLocation request for spoofed target." }
-                defaultReturnValue(chain.executable as? Method)
-            } else {
-                chain.proceed()
+                // getCurrentLocation is asynchronous. Returning without calling the real method
+                // prevents Android from ever invoking the app's callback, which vendor SDKs such
+                // as Tencent Location surface as "unable to obtain location". Let the request be
+                // registered; hookLocationDispatch replaces the Location in the callback.
+                logSystemLocationEvent { "Allowed getCurrentLocation request; callback will be replaced." }
             }
+            chain.proceed()
         }
     }
 

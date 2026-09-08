@@ -64,17 +64,26 @@ object LocationUtil {
     fun createFakeLocation(originalLocation: Location? = null, provider: String = LocationManager.GPS_PROVIDER): Location {
         updateLocation()
 
+        val nowMillis = System.currentTimeMillis()
+        val nowElapsedNanos = SystemClock.elapsedRealtimeNanos()
+        val sourceProvider = originalLocation?.provider?.takeIf { it.isNotBlank() } ?: provider
         val fakeLocation = if (originalLocation == null) {
-            Location(provider).apply {
-                time = System.currentTimeMillis() - 300
+            Location(sourceProvider).apply {
+                time = nowMillis
+                elapsedRealtimeNanos = nowElapsedNanos
+                // Location#isComplete requires accuracy. Several one-shot and vendor location
+                // clients discard a newly constructed Location when this flag is absent.
+                accuracy = FALLBACK_ACCURACY_METERS
             }
         } else {
-            Location(originalLocation.provider).apply {
-                time = originalLocation.time
+            Location(sourceProvider).apply {
+                // Emit a fresh, complete fix. Preserving a stale timestamp can make Tencent and
+                // fused clients ignore an otherwise valid replacement.
+                time = nowMillis
                 accuracy = originalLocation.accuracy
                 bearing = originalLocation.bearing
                 bearingAccuracyDegrees = originalLocation.bearingAccuracyDegrees
-                elapsedRealtimeNanos = originalLocation.elapsedRealtimeNanos
+                elapsedRealtimeNanos = nowElapsedNanos
                 verticalAccuracyMeters = originalLocation.verticalAccuracyMeters
             }
         }
@@ -298,4 +307,5 @@ object LocationUtil {
     }
 
     private const val RANDOMIZATION_INTERVAL_NANOS = 1_000_000_000L
+    private const val FALLBACK_ACCURACY_METERS = 5F
 }
