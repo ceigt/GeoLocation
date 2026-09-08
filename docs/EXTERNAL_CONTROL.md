@@ -1,6 +1,6 @@
 # External Intent Control
 
-GeoMimic can expose a `BroadcastReceiver` that lets any app on the device — or `adb shell` — control faking headlessly: start it, stop it, and update the fake coordinates without opening the GeoMimic UI.
+GeoLocation can expose a `BroadcastReceiver` that lets any app on the device — or `adb shell` — control faking headlessly: start it, stop it, and update the fake coordinates without opening the GeoLocation UI.
 
 ## Disabled by default — opt in via Settings
 
@@ -26,9 +26,9 @@ If you want to lock it down further, re-introduce a custom `<permission android:
 
 | Action | Extras | Effect |
 |--------|--------|--------|
-| `io.github.ceigt.geomimic.action.START` | optional `latitude` (double), `longitude` (double) | Sets `is_playing = true`. If lat/lon extras are provided, the active fake location is updated first. |
-| `io.github.ceigt.geomimic.action.STOP`  | none | Sets `is_playing = false`. |
-| `io.github.ceigt.geomimic.action.SET_LOCATION` | required `latitude` (double), `longitude` (double); optional `accuracy` (float); optional `start` (boolean) | Updates active fake location. If `accuracy` is provided, accuracy override is enabled. If `start=true`, faking is also started. |
+| `io.github.ceigt.geolocation.action.START` | optional `latitude` (double), `longitude` (double) | Sets `is_playing = true`. If lat/lon extras are provided, the active fake location is updated first. |
+| `io.github.ceigt.geolocation.action.STOP`  | none | Sets `is_playing = false`. |
+| `io.github.ceigt.geolocation.action.SET_LOCATION` | required `latitude` (double), `longitude` (double); optional `accuracy` (float); optional `start` (boolean) | Updates active fake location. If `accuracy` is provided, accuracy override is enabled. If `start=true`, faking is also started. |
 
 All writes go through the same `PreferencesRepository` the in-app UI uses, so they propagate to `XSharedPreferences` consumed by the Xposed hooks automatically.
 
@@ -37,31 +37,31 @@ All writes go through the same `PreferencesRepository` the in-app UI uses, so th
 ```sh
 # Start faking using whatever location was last set
 adb shell am broadcast \
-  -a io.github.ceigt.geomimic.action.START \
-  -n io.github.ceigt.geomimic/.manager.control.ControlReceiver
+  -a io.github.ceigt.geolocation.action.START \
+  -n io.github.ceigt.geolocation/.manager.control.ControlReceiver
 
 # Start faking at a specific location
 adb shell am broadcast \
-  -a io.github.ceigt.geomimic.action.START \
-  -n io.github.ceigt.geomimic/.manager.control.ControlReceiver \
+  -a io.github.ceigt.geolocation.action.START \
+  -n io.github.ceigt.geolocation/.manager.control.ControlReceiver \
   --ed latitude 37.7749 --ed longitude -122.4194
 
 # Set location only (does not start)
 adb shell am broadcast \
-  -a io.github.ceigt.geomimic.action.SET_LOCATION \
-  -n io.github.ceigt.geomimic/.manager.control.ControlReceiver \
+  -a io.github.ceigt.geolocation.action.SET_LOCATION \
+  -n io.github.ceigt.geolocation/.manager.control.ControlReceiver \
   --ed latitude 48.8566 --ed longitude 2.3522 --ef accuracy 5.0
 
 # Set location and immediately start
 adb shell am broadcast \
-  -a io.github.ceigt.geomimic.action.SET_LOCATION \
-  -n io.github.ceigt.geomimic/.manager.control.ControlReceiver \
+  -a io.github.ceigt.geolocation.action.SET_LOCATION \
+  -n io.github.ceigt.geolocation/.manager.control.ControlReceiver \
   --ed latitude 48.8566 --ed longitude 2.3522 --ez start true
 
 # Stop faking
 adb shell am broadcast \
-  -a io.github.ceigt.geomimic.action.STOP \
-  -n io.github.ceigt.geomimic/.manager.control.ControlReceiver
+  -a io.github.ceigt.geolocation.action.STOP \
+  -n io.github.ceigt.geolocation/.manager.control.ControlReceiver
 ```
 
 ## Caller snippet (Kotlin)
@@ -71,7 +71,7 @@ import android.content.Context
 import android.content.Intent
 
 object FakeLocationControl {
-    private const val PKG = "io.github.ceigt.geomimic"
+    private const val PKG = "io.github.ceigt.geolocation"
     private const val RECEIVER = "$PKG.manager.control.ControlReceiver"
 
     fun start(context: Context, lat: Double? = null, lon: Double? = null) {

@@ -17,4 +17,4 @@
 
 ## Issue reports
 
-Include device/ROM, Android version, root solution, LSPosed version, GeoMimic version, selected mode and scope, reproduction steps, and redacted logs. Never include account identifiers or precise personal locations.
+Include device/ROM, Android version, root solution, LSPosed version, GeoLocation version, selected mode and scope, reproduction steps, and redacted logs. Never include account identifiers or precise personal locations.

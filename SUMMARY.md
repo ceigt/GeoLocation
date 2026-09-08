@@ -1,1 +1,1 @@
-GeoMimic is an Android 11+ Xposed/LSPosed location-simulation module for rooted devices. It supplies configured simulated locations to selected app scopes and provides map selection, place search, favourites, current-location support, and configurable location parameters.
+GeoLocation is an Android 11+ Xposed/LSPosed location-simulation module for rooted devices. It supplies configured simulated locations to selected app scopes and provides map selection, place search, favourites, current-location support, and configurable location parameters.

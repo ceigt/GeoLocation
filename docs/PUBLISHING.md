@@ -1,6 +1,6 @@
 # 公开发布说明
 
-本文用于将 GeoMimic 发布到 GitHub，并提交至 LSPosed 模块仓库。源码仓库为 <https://github.com/ceigt/GeoMimic>，包名为 `io.github.ceigt.geomimic`。
+本文用于将 GeoLocation 发布到 GitHub，并提交至 LSPosed 模块仓库。源码仓库为 <https://github.com/ceigt/GeoLocation>，包名为 `io.github.ceigt.geolocation`。
 
 ## 发布前安全检查
 
@@ -26,18 +26,18 @@ git diff --cached --check
 在项目根目录执行。以下命令只暂存、提交并推送当前项目；请先自行核对 `git status` 输出。
 
 ```powershell
-git remote set-url origin https://github.com/ceigt/GeoMimic.git
+git remote set-url origin https://github.com/ceigt/GeoLocation.git
 git branch -M main
 git add .
 git status
-git commit -m "Prepare GeoMimic public release"
+git commit -m "Prepare GeoLocation public release"
 git push -u origin main
 ```
 
 如果希望先保留现有 `self-development` 分支，可将最后两行改为：
 
 ```powershell
-git commit -m "Prepare GeoMimic public release"
+git commit -m "Prepare GeoLocation public release"
 git push -u origin self-development
 ```
 
@@ -62,9 +62,9 @@ versionCode-versionName
 建议在 GitHub Release 中使用：
 
 ```text
-标题：GeoMimic 1.0.0
+标题：GeoLocation 1.0.0
 标签：10000-1.0.0
-附件：GeoMimic-1.0.0-YYYYMMDD.apk
+附件：GeoLocation-1.0.0-YYYYMMDD.apk
 ```
 
 APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本地 Release 会回退到 Android 调试证书，只适合安装测试，不应作为公开升级链路的正式发布包。
@@ -84,7 +84,7 @@ GEOMIMIC_BAIDU_WEB_AK
 `GEOMIMIC_KEYSTORE_BASE64` 是 JKS 文件的 Base64 内容。PowerShell 示例：
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\geomimic-release.jks")) | Set-Clipboard
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\geolocation-release.jks")) | Set-Clipboard
 ```
 
 创建 GitHub Release 后，在 Actions 中运行 “Build and attach release APK”，输入同一标签，例如 `10000-1.0.0`。工作流会校验标签与版本号映射、临时写入签名和地图密钥配置、构建并上传 APK；这些密钥不会写回仓库。
@@ -92,14 +92,14 @@ GEOMIMIC_BAIDU_WEB_AK
 ## 提交 LSPosed 模块仓库
 
 1. 确认公开 GitHub 仓库默认分支已包含 `README.md`、`SUMMARY`、`SOURCE_URL`、`LICENSE`，并已有带有效 APK 附件的 GitHub Release。
-2. 打开 <https://modules.lsposed.org/submission/>，提交包名 `io.github.ceigt.geomimic`。
+2. 打开 <https://modules.lsposed.org/submission/>，提交包名 `io.github.ceigt.geolocation`。
 3. 按页面提示在 `Xposed-Modules-Repo/submission` 创建提交；机器人会创建对应包名仓库并邀请维护者。
 4. 在创建的模块仓库中保留同步的 `README.md`、`SUMMARY`、`SOURCE_URL`、`LICENSE`，并按 `versionCode-versionName` 标签提交后续 Release。
 
 提交描述建议：
 
 ```text
-GeoMimic — Android Xposed/LSPosed location simulation module for lawful testing.
+GeoLocation — Android Xposed/LSPosed location simulation module for lawful testing.
 ```
 
 ## 合规提示

@@ -22,7 +22,7 @@
 
 1. 将源码和文档提交到 GitHub 默认分支。
 2. 创建标签：`versionCode-versionName`，例如 `10000-1.0.0`。
-3. 创建同名 GitHub Release，标题使用 `GeoMimic 1.0.0`。
+3. 创建同名 GitHub Release，标题使用 `GeoLocation 1.0.0`。
 4. 上传已验证的正式签名 APK，文件名保留构建输出的版本与日期。
 5. 下载 Release 附件再次安装或校验签名，确认附件未损坏。
 
@@ -30,7 +30,7 @@
 
 ## 4. 同步 LSPosed 模块仓库
 
-1. 首次发布时到 <https://modules.lsposed.org/submission/> 提交 `io.github.ceigt.geomimic`。
+1. 首次发布时到 <https://modules.lsposed.org/submission/> 提交 `io.github.ceigt.geolocation`。
 2. 在模块仓库中提交与源码仓库一致的 `README.md`、`SUMMARY`、`SOURCE_URL`、`LICENSE`。
 3. 为每次版本发布创建同样的 `versionCode-versionName` 标签，并提供对应的有效 APK Release 附件。
 4. 等待 LSPosed 仓库处理完成后，在模块页确认名称、摘要、链接和下载版本正确。
@@ -39,6 +39,6 @@
 
 - GitHub Release 标签、标题和 APK 版本一致。
 - APK 使用正式签名，且可在测试设备安装。
-- README 下载链接、`SOURCE_URL` 和 LSPosed 包名均指向 `io.github.ceigt.geomimic` / GeoMimic。
+- README 下载链接、`SOURCE_URL` 和 LSPosed 包名均指向 `io.github.ceigt.geolocation` / GeoLocation。
 - 未公开任何密钥、账号、设备日志中的敏感字段或私人地址。
 - 仅保留合法、已授权测试用途的项目描述。

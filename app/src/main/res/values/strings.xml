@@ -1,18 +1,18 @@
 <resources>
-    <string name="app_name">GeoMimic</string>
+    <string name="app_name">GeoLocation</string>
 
     <string name="description">a map-first location testing workspace</string>
     <string name="nav_apps">Apps</string>
     <string name="nav_home">Home</string>
     <string name="nav_settings">Settings</string>
-    <string name="about_dialog_summary">GeoMimic is only for lawful, authorized testing, development, debugging, and learning.\n\nDo not use this app to bypass platform rules, falsify attendance, obtain improper benefits, disrupt services, infringe others’ rights, or for any unlawful purpose.\n\nBefore simulating a location, confirm that you have authorization for the device, account, app, and intended use. You are solely responsible for all consequences of using this app.</string>
+    <string name="about_dialog_summary">GeoLocation is only for lawful, authorized testing, development, debugging, and learning.\n\nDo not use this app to bypass platform rules, falsify attendance, obtain improper benefits, disrupt services, infringe others’ rights, or for any unlawful purpose.\n\nBefore simulating a location, confirm that you have authorization for the device, account, app, and intended use. You are solely responsible for all consequences of using this app.</string>
     <string name="about_version_label">Version</string>
     <string name="sponsor_title">Support development</string>
     <string name="sponsor_menu_title">Sponsor</string>
     <string name="telegram">GitHub</string>
     <string name="sponsor_entry_title">Support development</string>
     <string name="sponsor_entry_summary">Voluntarily support ongoing maintenance</string>
-    <string name="sponsor_dialog_summary">If GeoMimic helps with your testing or development, voluntary support is welcome to help maintain the project. Support does not unlock features or affect normal use.</string>
+    <string name="sponsor_dialog_summary">If GeoLocation helps with your testing or development, voluntary support is welcome to help maintain the project. Support does not unlock features or affect normal use.</string>
     <string name="sponsor_wechat_qr">WeChat support QR code</string>
     <string name="sponsor_disclaimer">No donation or payment address is configured in this independent build.</string>
 
@@ -26,7 +26,7 @@
     <string name="action_delete">Delete</string>
 
     <string name="disclaimer_title">Use Disclaimer</string>
-    <string name="disclaimer_body">GeoMimic is intended only for lawful testing, development, device debugging, and personal learning. Do not use it to bypass platform rules, commit fraud, invade privacy, or perform any illegal activity. Map display, place search, and reverse geocoding are provided by Baidu Map JavaScript API, which is loaded only after you consent. You are responsible for how this tool is used.</string>
+    <string name="disclaimer_body">GeoLocation is intended only for lawful testing, development, device debugging, and personal learning. Do not use it to bypass platform rules, commit fraud, invade privacy, or perform any illegal activity. Map display, place search, and reverse geocoding are provided by Baidu Map JavaScript API, which is loaded only after you consent. You are responsible for how this tool is used.</string>
     <string name="disclaimer_accept_checkbox">I agree to lawful testing use and to loading Baidu Map JavaScript API for map features.</string>
     <string name="disclaimer_confirm">Agree and continue</string>
     <string name="disclaimer_decline">Exit</string>
@@ -96,11 +96,11 @@
     <string name="location_mode_system_title">System-level Hook</string>
     <string name="location_mode_system_description">Requires Root and LSPosed. In addition to app-level hooks, it handles Android system, framework, and phone services. It is intended for apps with unusual location paths or stronger mock-location detection. Compatibility is better, but system location issues may occur on a small number of devices. Resource and battery usage remain extremely low.</string>
     <string name="location_mode_mock_provider_title">Mock Provider</string>
-    <string name="location_mode_mock_provider_description">Does not require Root or LSPosed, but you must first select GeoMimic under Developer options → Select mock location app. Android marks the location as mocked, so target apps may detect it. The GeoMimic background service must remain running during simulation, with relatively higher resource and battery usage.</string>
-    <string name="module_inactive_banner">GeoMimic is not active in LSPosed. Enable the module and configure its scope first.</string>
-    <string name="system_hooks_module_inactive">Module is not active. Enable GeoMimic in your Xposed manager first.</string>
+    <string name="location_mode_mock_provider_description">Does not require Root or LSPosed, but you must first select GeoLocation under Developer options → Select mock location app. Android marks the location as mocked, so target apps may detect it. The GeoLocation background service must remain running during simulation, with relatively higher resource and battery usage.</string>
+    <string name="module_inactive_banner">GeoLocation is not active in LSPosed. Enable the module and configure its scope first.</string>
+    <string name="system_hooks_module_inactive">Module is not active. Enable GeoLocation in your Xposed manager first.</string>
     <string name="system_hooks_scope_required_title">System scope setup required</string>
-    <string name="system_hooks_scope_required_message">Open your Xposed manager, then open GeoMimic → Scope and select: %1$s. Return here after saving. For safety, this app does not request or change scope itself.</string>
+    <string name="system_hooks_scope_required_message">Open your Xposed manager, then open GeoLocation → Scope and select: %1$s. Return here after saving. For safety, this app does not request or change scope itself.</string>
     <string name="setting_more_info">More information about %1$s</string>
     <string name="setting_disable">Disable %1$s</string>
     <string name="setting_enable">Enable %1$s</string>
@@ -170,12 +170,12 @@
     <string name="target_apps_show_system_apps">Show system apps</string>
     <string name="target_apps_system_framework">System Framework</string>
     <string name="target_apps_scope_only">LSPosed scope (read-only)</string>
-    <string name="target_apps_module_inactive">Module is not active. Enable GeoMimic in your Xposed manager to choose target apps.</string>
+    <string name="target_apps_module_inactive">Module is not active. Enable GeoLocation in your Xposed manager to choose target apps.</string>
     <string name="target_apps_scope_request_failed">Couldn\'t update scope: %1$s</string>
     <string name="target_apps_relaunch_cd">Relaunch %1$s</string>
     <string name="target_apps_relaunching">Relaunching %1$s…</string>
     <string name="target_apps_relaunch_failed">Couldn\'t relaunch %1$s. Is root granted?</string>
-    <string name="target_apps_root_required">Relaunching a target app requires GeoMimic to have root access. Please grant it in your root manager.</string>
+    <string name="target_apps_root_required">Relaunching a target app requires GeoLocation to have root access. Please grant it in your root manager.</string>
 
     <string name="permissions_activity_error">Error: Unable to access activity.</string>
     <string name="permissions_required">Permissions are required to use this app</string>
@@ -183,5 +183,5 @@
     <string name="permissions_permanently_denied">You have permanently denied location permissions. Please enable them from settings and restart the app.</string>
     <string name="permissions_open_settings">Open Settings</string>
 
-    <string name="about_description">GeoMimic is provided only for lawful, authorized testing, development debugging, learning, and research.\n\nDo not use this app to bypass platform rules, falsify attendance or check-ins, obtain improper benefits, disrupt services, infringe others\' rights, or conduct any illegal activity.\n\nBefore using location simulation, make sure you have permission for the target device, account, app, and scenario. You are solely responsible for how you use this app and for any consequences arising from that use.</string>
+    <string name="about_description">GeoLocation is provided only for lawful, authorized testing, development debugging, learning, and research.\n\nDo not use this app to bypass platform rules, falsify attendance or check-ins, obtain improper benefits, disrupt services, infringe others\' rights, or conduct any illegal activity.\n\nBefore using location simulation, make sure you have permission for the target device, account, app, and scenario. You are solely responsible for how you use this app and for any consequences arising from that use.</string>
 </resources>

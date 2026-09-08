@@ -1,6 +1,6 @@
-# GeoMimic
+# GeoLocation
 
-GeoMimic 是一个面向自有设备和已授权测试环境的 Android 11+ 定位测试工具。它是可独立安装、独立维护的 LSPosed 模块，应用 ID 为 `io.github.ceigt.geomimic`，没有订阅、付费墙或远程授权服务。
+GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ 定位测试工具。它是可独立安装、独立维护的 LSPosed 模块，应用 ID 为 `io.github.ceigt.geolocation`，没有订阅、付费墙或远程授权服务。
 
 ## 来源与许可证
 
@@ -19,12 +19,12 @@ GeoMimic 是一个面向自有设备和已授权测试环境的 Android 11+ 定�
 
 ## 安装
 
-1. 安装 `GeoMimic-1.0.0-debug-*.apk`，Android 11 或更高版本。
-2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoMimic。
-3. 打开 GeoMimic，在“受影响的应用”中选择测试目标。切换作用域后重新启动目标应用。
+1. 安装 `GeoLocation-1.0.0-debug-*.apk`，Android 11 或更高版本。
+2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
+3. 打开 GeoLocation，在“受影响的应用”中选择测试目标。切换作用域后重新启动目标应用。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。
 
-Mock Provider 模式需要在 Android 开发者选项中把 GeoMimic 设为模拟位置信息应用。系统级 Hook 会影响更广的定位链路，只应在受控测试设备上启用。升级时必须使用同一签名；首次换用自己的签名需要先卸载旧的 GeoMimic 构建。
+Mock Provider 模式需要在 Android 开发者选项中把 GeoLocation 设为模拟位置信息应用。系统级 Hook 会影响更广的定位链路，只应在受控测试设备上启用。升级时必须使用同一签名；首次换用自己的签名需要先卸载旧的 GeoLocation 构建。
 
 ## 构建
 

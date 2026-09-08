@@ -39,9 +39,9 @@ val localProperties = Properties().apply {
     }
 }
 val keystorePropertiesFile = rootProject.file("keystore.properties")
-val hasGeoMimicKeystore = keystorePropertiesFile.isFile
+val hasGeoLocationKeystore = keystorePropertiesFile.isFile
 val keystoreProperties = Properties().apply {
-    if (hasGeoMimicKeystore) {
+    if (hasGeoLocationKeystore) {
         keystorePropertiesFile.inputStream().use(::load)
     }
 }
@@ -50,13 +50,13 @@ fun requiredSigningProperty(name: String): String =
     keystoreProperties.getProperty(name) ?: error("Missing signing property: $name")
 
 android {
-    namespace = "io.github.ceigt.geomimic"
+    namespace = "io.github.ceigt.geolocation"
     compileSdk = 36
     buildToolsVersion = "36.0.0"
 
     signingConfigs {
-        if (hasGeoMimicKeystore) {
-            create("geoMimic") {
+        if (hasGeoLocationKeystore) {
+            create("geoLocation") {
                 storeFile = rootProject.file(requiredSigningProperty("storeFile"))
                 storePassword = requiredSigningProperty("storePassword")
                 keyAlias = requiredSigningProperty("keyAlias")
@@ -66,7 +66,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "io.github.ceigt.geomimic"
+        applicationId = "io.github.ceigt.geolocation"
         minSdk = 30
         targetSdk = 36
         versionCode = appVersionCode
@@ -85,8 +85,8 @@ android {
 
     buildTypes {
         debug {
-            if (hasGeoMimicKeystore) {
-                signingConfig = signingConfigs["geoMimic"]
+            if (hasGeoLocationKeystore) {
+                signingConfig = signingConfigs["geoLocation"]
             }
         }
 
@@ -97,8 +97,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasGeoMimicKeystore) {
-                signingConfigs["geoMimic"]
+            signingConfig = if (hasGeoLocationKeystore) {
+                signingConfigs["geoLocation"]
             } else {
                 signingConfigs["debug"]
             }
@@ -130,7 +130,7 @@ android {
         val debugSuffix = if (buildType.name == "debug") "-debug" else ""
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "GeoMimic-${versionName}${debugSuffix}-${apkBuildDate}.apk"
+                "GeoLocation-${versionName}${debugSuffix}-${apkBuildDate}.apk"
         }
     }
 }

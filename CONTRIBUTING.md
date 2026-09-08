@@ -1,6 +1,6 @@
-# Contributing to GeoMimic
+# Contributing to GeoLocation
 
-GeoMimic is a customized fork of [XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation).
+GeoLocation is a customized fork of [XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation).
 
 Before making changes:
 

@@ -64,9 +64,9 @@ jobs:
             fi
           done
           mkdir -p keystore
-          echo "$KEYSTORE_BASE64" | base64 --decode > keystore/geomimic-release.jks
+          echo "$KEYSTORE_BASE64" | base64 --decode > keystore/geolocation-release.jks
           cat > keystore.properties <<EOF
-          storeFile=keystore/geomimic-release.jks
+          storeFile=keystore/geolocation-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          files=(app/build/outputs/apk/release/GeoMimic-${{ steps.version.outputs.version }}-*.apk)
+          files=(app/build/outputs/apk/release/GeoLocation-${{ steps.version.outputs.version }}-*.apk)
           if [[ "${#files[@]}" -ne 1 ]]; then
             echo "::error::Expected exactly one versioned release APK, found ${#files[@]}."
             exit 1
