@@ -27,15 +27,24 @@ internal class TencentLocationHooks(
     private val listenerProxies = IdentityHashMap<Any, Any>()
     private val installedMethods = mutableSetOf<Method>()
 
-    fun initHooks(loader: ClassLoader = classLoader) {
-        val managerClass = findClass(TENCENT_MANAGER_CLASS, loader) ?: return
-        val listenerClass = findClass(TENCENT_LISTENER_CLASS, loader) ?: return
-        val locationClass = findClass(TENCENT_LOCATION_CLASS, loader) ?: return
+    private val reportedEvents = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
-        hookListenerRegistration(managerClass, listenerClass, locationClass)
-        hookListenerRemoval(managerClass, listenerClass)
-        hookLastKnownLocation(managerClass, locationClass)
-        module.log(Log.INFO, tag, "Tencent SDK hooked methods: ${installedMethods.size}")
+    private fun reportOnce(event: String) {
+        if (reportedEvents.add(event)) module.log(Log.INFO, tag, event)
+    }
+
+    fun initHooks(loader: ClassLoader = classLoader) {
+        TencentSdkDiscovery.namespaces.forEach { namespace ->
+            runCatching {
+                val sdk = TencentSdkDiscovery.resolve(namespace, loader)
+                hookListenerRegistration(sdk.manager, sdk.listener, sdk.location)
+                hookListenerRemoval(sdk.manager, sdk.listener)
+                hookLastKnownLocation(sdk.manager, sdk.location)
+                reportOnce("SDK available: $namespace; total hooked methods=${installedMethods.size}")
+            }.onFailure {
+                reportOnce("Optional SDK unavailable: $namespace (${it.javaClass.simpleName})")
+            }
+        }
     }
 
     private fun hookListenerRegistration(
@@ -63,7 +72,9 @@ internal class TencentLocationHooks(
 
                     val newArgs = chain.args.toTypedArray()
                     newArgs[listenerIndex] = proxyListener
-                    chain.proceed(newArgs)
+                    val result = chain.proceed(newArgs)
+                    reportOnce("Listener registration: ${managerClass.name}.${method.name}; result=$result")
+                    result
                 }
             }
     }
@@ -152,6 +163,7 @@ internal class TencentLocationHooks(
                 PreferencesUtil.snapshot().isPlaying
             ) {
                 forwardedArgs[0] = wrapLocation(forwardedArgs[0]!!, locationClass)
+                reportOnce("SDK callback replaced: ${locationClass.name}")
             }
             return invokeOriginal(method, original, forwardedArgs)
         }
@@ -240,17 +252,7 @@ internal class TencentLocationHooks(
         }
     }
 
-    private fun findClass(name: String, loader: ClassLoader): Class<*>? = runCatching {
-        Class.forName(name, false, loader)
-    }.getOrElse {
-        module.log(Log.INFO, tag, "Optional Tencent class unavailable: $name")
-        null
-    }
-
     private companion object {
-        const val TENCENT_MANAGER_CLASS = "com.tencent.map.geolocation.TencentLocationManager"
-        const val TENCENT_LISTENER_CLASS = "com.tencent.map.geolocation.TencentLocationListener"
-        const val TENCENT_LOCATION_CLASS = "com.tencent.map.geolocation.TencentLocation"
         const val TENCENT_COORDINATE_WGS84 = 0
         const val TENCENT_COORDINATE_GCJ02 = 1
         val REQUEST_METHOD_NAMES = setOf("requestLocationUpdates", "requestSingleFreshLocation")

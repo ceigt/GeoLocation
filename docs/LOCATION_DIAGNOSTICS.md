@@ -1,3 +1,21 @@
+# 1.2.4 企业微信 sapp SDK 适配
+
+实际检查用户导出的 Google Play 企业微信 5.0.9（versionCode 75141）。页面接收 com.tencent.map.geolocation.sapp.TencentLocationListener，并读取 sapp.TencentLocation 经纬度绘制地图。此前只查找标准命名空间，遗漏 sapp。
+
+现按同一命名空间解析 manager/listener/location，验证接口签名后复用回调代理。没有复制企业微信实现或修改其安装包；安装包和反编译文件不进入仓库。原 Android 主动回调保持不变。
+
+回归测试使用独立编写的最小接口替身，验证标准命名空间不存在时仍能识别 sapp。测试不能替代手机验证。
+
+安装 1.2.4 debug 并重启，沿用应用级 Hook 和企业微信 GCJ-02。新日志含义：
+
+- SDK available: ...sapp：SDK 已识别，附实际 Hook 方法总数。
+- Listener registration: ...sapp...：注册入口命中及返回码。
+- SDK callback replaced: ...sapp.TencentLocation：SDK 回调参数已替换，不等于页面最终结果已验证。
+
+地址/POI 元数据保持 SDK 原值；不新增远程地理编码。原始错误码保持不变。后续动态加载器、私有接口及所有页面的兼容性尚未验证。
+
+以下保留 1.2.3 排查记录。
+
 # 1.2.3 定位回调排查
 
 ## 依据与改动
