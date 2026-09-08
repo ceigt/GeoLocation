@@ -1,6 +1,6 @@
-# Contributing to LocusMimic
+# Contributing to GeoMimic
 
-LocusMimic is a customized fork of [XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation).
+GeoMimic is a customized fork of [XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation).
 
 Before making changes:
 

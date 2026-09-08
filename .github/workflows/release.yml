@@ -41,20 +41,20 @@ jobs:
           fi
           echo "version=$major.$minor.$patch$suffix" >> "$GITHUB_OUTPUT"
 
-      - name: Set up JDK 21
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "17"
           cache: gradle
 
       - name: Restore signing and map configuration
         env:
-          KEYSTORE_BASE64: ${{ secrets.LOCUSMIMIC_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.LOCUSMIMIC_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.LOCUSMIMIC_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.LOCUSMIMIC_KEY_PASSWORD }}
-          BAIDU_WEB_AK: ${{ secrets.LOCUSMIMIC_BAIDU_WEB_AK }}
+          KEYSTORE_BASE64: ${{ secrets.GEOMIMIC_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.GEOMIMIC_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.GEOMIMIC_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.GEOMIMIC_KEY_PASSWORD }}
+          BAIDU_WEB_AK: ${{ secrets.GEOMIMIC_BAIDU_WEB_AK }}
         shell: bash
         run: |
           for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD BAIDU_WEB_AK; do
@@ -64,9 +64,9 @@ jobs:
             fi
           done
           mkdir -p keystore
-          echo "$KEYSTORE_BASE64" | base64 --decode > keystore/locusmimic-release.jks
+          echo "$KEYSTORE_BASE64" | base64 --decode > keystore/geomimic-release.jks
           cat > keystore.properties <<EOF
-          storeFile=keystore/locusmimic-release.jks
+          storeFile=keystore/geomimic-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          files=(app/build/outputs/apk/release/LocusMimic-${{ steps.version.outputs.version }}-*.apk)
+          files=(app/build/outputs/apk/release/GeoMimic-${{ steps.version.outputs.version }}-*.apk)
           if [[ "${#files[@]}" -ne 1 ]]; then
             echo "::error::Expected exactly one versioned release APK, found ${#files[@]}."
             exit 1

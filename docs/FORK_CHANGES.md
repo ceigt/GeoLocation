@@ -1,11 +1,11 @@
 # Fork Changes and Attribution
 
-LocusMimic is a personal-maintenance fork based on [noobexon1/XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation), with additional implementation work informed by [auag0/HideMockLocation](https://github.com/auag0/HideMockLocation).
+GeoMimic is a personal-maintenance fork based on [noobexon1/XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation), with additional implementation work informed by [auag0/HideMockLocation](https://github.com/auag0/HideMockLocation).
 
 ## Identity and packaging
 
-- Application ID and namespace: `com.locusmimic.app`.
-- Application and LSPosed module identity: LocusMimic.
+- Application ID and namespace: `io.github.ceigt.geomimic`.
+- Application and LSPosed module identity: GeoMimic.
 - MIT license and upstream copyright notice are retained in [LICENSE](../LICENSE).
 
 ## Product changes

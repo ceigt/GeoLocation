@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- LocusMimic: a coordinate star suspended in a fine orbital atlas. -->
+    <!-- GeoMimic: a coordinate star suspended in a fine orbital atlas. -->
     <group android:pivotX="54" android:pivotY="54" android:scaleX="0.72" android:scaleY="0.72">
         <path
             android:fillColor="#00000000"

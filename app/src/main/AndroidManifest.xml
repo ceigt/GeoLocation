@@ -20,13 +20,13 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
-        android:theme="@style/Theme.LocusMimic"
+        android:theme="@style/Theme.GeoMimic"
         tools:targetApi="31">
         <activity
             android:name=".manager.MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.LocusMimic">
+            android:theme="@style/Theme.GeoMimic">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -49,9 +49,9 @@
             android:enabled="false"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.locusmimic.app.action.START" />
-                <action android:name="com.locusmimic.app.action.STOP" />
-                <action android:name="com.locusmimic.app.action.SET_LOCATION" />
+                <action android:name="io.github.ceigt.geomimic.action.START" />
+                <action android:name="io.github.ceigt.geomimic.action.STOP" />
+                <action android:name="io.github.ceigt.geomimic.action.SET_LOCATION" />
             </intent-filter>
         </receiver>
     </application>

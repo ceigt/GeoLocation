@@ -11,7 +11,7 @@ plugins {
 
 // Version is derived from the release tag in CI (passed via -PappVersionName=vX.Y.Z or the
 // APP_VERSION_NAME env var). Local builds fall back to the dev version below.
-val fallbackVersionName = "1.1.0"
+val fallbackVersionName = "1.0.0"
 
 fun resolveVersionName(): String {
     val provided = (project.findProperty("appVersionName") as String?)
@@ -39,9 +39,9 @@ val localProperties = Properties().apply {
     }
 }
 val keystorePropertiesFile = rootProject.file("keystore.properties")
-val hasLocusMimicKeystore = keystorePropertiesFile.isFile
+val hasGeoMimicKeystore = keystorePropertiesFile.isFile
 val keystoreProperties = Properties().apply {
-    if (hasLocusMimicKeystore) {
+    if (hasGeoMimicKeystore) {
         keystorePropertiesFile.inputStream().use(::load)
     }
 }
@@ -50,12 +50,13 @@ fun requiredSigningProperty(name: String): String =
     keystoreProperties.getProperty(name) ?: error("Missing signing property: $name")
 
 android {
-    namespace = "com.locusmimic.app"
+    namespace = "io.github.ceigt.geomimic"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     signingConfigs {
-        if (hasLocusMimicKeystore) {
-            create("locusMimic") {
+        if (hasGeoMimicKeystore) {
+            create("geoMimic") {
                 storeFile = rootProject.file(requiredSigningProperty("storeFile"))
                 storePassword = requiredSigningProperty("storePassword")
                 keyAlias = requiredSigningProperty("keyAlias")
@@ -65,7 +66,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.locusmimic.app"
+        applicationId = "io.github.ceigt.geomimic"
         minSdk = 30
         targetSdk = 36
         versionCode = appVersionCode
@@ -84,8 +85,8 @@ android {
 
     buildTypes {
         debug {
-            if (hasLocusMimicKeystore) {
-                signingConfig = signingConfigs["locusMimic"]
+            if (hasGeoMimicKeystore) {
+                signingConfig = signingConfigs["geoMimic"]
             }
         }
 
@@ -96,8 +97,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = if (hasLocusMimicKeystore) {
-                signingConfigs["locusMimic"]
+            signingConfig = if (hasGeoMimicKeystore) {
+                signingConfigs["geoMimic"]
             } else {
                 signingConfigs["debug"]
             }
@@ -105,8 +106,8 @@ android {
 
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
 
@@ -117,7 +118,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = "21"
+        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -129,7 +130,7 @@ android {
         val debugSuffix = if (buildType.name == "debug") "-debug" else ""
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "LocusMimic-${versionName}${debugSuffix}-${apkBuildDate}.apk"
+                "GeoMimic-${versionName}${debugSuffix}-${apkBuildDate}.apk"
         }
     }
 }
