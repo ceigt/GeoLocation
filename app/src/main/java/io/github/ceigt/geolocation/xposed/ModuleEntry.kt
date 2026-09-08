@@ -72,6 +72,11 @@ class ModuleEntry : XposedModule() {
     }
 
     private fun initHookingLogic(param: PackageReadyParam) {
+        // Install location hooks as soon as the package class loader is ready. Waiting until after
+        // Application.onCreate lets apps such as WeChat register vendor location listeners before
+        // GeoLocation can wrap them, so those callbacks continue exposing the real location.
+        locationApiHooks = LocationApiHooks(this, param.classLoader).also { it.initHooks() }
+
         val clazz = Class.forName("android.app.Instrumentation", false, param.classLoader)
         val method = clazz.getDeclaredMethod("callApplicationOnCreate", Application::class.java)
 
@@ -87,8 +92,6 @@ class ModuleEntry : XposedModule() {
             } catch (e: Exception) {
                 log(Log.ERROR, TAG, "Toast/context failed - ${e.message}")
             }
-
-            locationApiHooks = LocationApiHooks(this, param.classLoader).also { it.initHooks() }
             result
         }
     }

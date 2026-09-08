@@ -24,6 +24,15 @@ enum class LocationMode {
     MOCK_PROVIDER
 }
 
+internal fun resolveLocationMode(
+    mockProviderEnabled: Boolean,
+    systemHooksEnabled: Boolean
+): LocationMode = when {
+    mockProviderEnabled -> LocationMode.MOCK_PROVIDER
+    systemHooksEnabled -> LocationMode.SYSTEM_HOOK
+    else -> LocationMode.APPLICATION_HOOK
+}
+
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val preferencesRepository = PreferencesRepository(application)
 
@@ -307,12 +316,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         enableMockProvider,
         enableSystemHooks
     ) { mockProviderEnabled, systemHooksEnabled ->
-        when {
-            mockProviderEnabled -> LocationMode.MOCK_PROVIDER
-            systemHooksEnabled -> LocationMode.SYSTEM_HOOK
-            else -> LocationMode.SYSTEM_HOOK
-        }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, LocationMode.SYSTEM_HOOK)
+        resolveLocationMode(mockProviderEnabled, systemHooksEnabled)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, LocationMode.APPLICATION_HOOK)
 
     private val _systemHooksEvents = MutableSharedFlow<SystemHooksEvent>(extraBufferCapacity = 1)
     val systemHooksEvents: SharedFlow<SystemHooksEvent> = _systemHooksEvents.asSharedFlow()

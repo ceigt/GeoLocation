@@ -20,6 +20,7 @@ class LocationApiHooks(
         LocationObjectHooks(module, classLoader).initHooks()
         LocationManagerHooks(module, classLoader).initHooks()
         LocationCallbackHooks(module, classLoader).initHooks()
+        TencentLocationHooks(module, classLoader).initHooks()
         // Keep Wi-Fi scans, cell information and GNSS callback registration available. Tencent,
         // AMap and other vendor location SDKs use those sources to establish a fix before they
         // emit an Android Location. Clearing the sources here can suppress location callbacks
