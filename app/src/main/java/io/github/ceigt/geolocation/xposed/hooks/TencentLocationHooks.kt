@@ -25,16 +25,17 @@ internal class TencentLocationHooks(
 ) {
     private val tag = "[TencentLocationHooks]"
     private val listenerProxies = IdentityHashMap<Any, Any>()
+    private val installedMethods = mutableSetOf<Method>()
 
-    fun initHooks() {
-        val managerClass = findClass(TENCENT_MANAGER_CLASS) ?: return
-        val listenerClass = findClass(TENCENT_LISTENER_CLASS) ?: return
-        val locationClass = findClass(TENCENT_LOCATION_CLASS) ?: return
+    fun initHooks(loader: ClassLoader = classLoader) {
+        val managerClass = findClass(TENCENT_MANAGER_CLASS, loader) ?: return
+        val listenerClass = findClass(TENCENT_LISTENER_CLASS, loader) ?: return
+        val locationClass = findClass(TENCENT_LOCATION_CLASS, loader) ?: return
 
         hookListenerRegistration(managerClass, listenerClass, locationClass)
         hookListenerRemoval(managerClass, listenerClass)
         hookLastKnownLocation(managerClass, locationClass)
-        module.log(Log.INFO, tag, "Tencent Location SDK compatibility hooks installed.")
+        module.log(Log.INFO, tag, "Tencent SDK hooked methods: ${installedMethods.size}")
     }
 
     private fun hookListenerRegistration(
@@ -228,15 +229,19 @@ internal class TencentLocationHooks(
         method: Method,
         interceptor: Hooker
     ) {
-        runCatching {
-            module.hook(method).intercept(interceptor)
-        }.onFailure {
-            module.log(Log.WARN, tag, "Could not hook ${method.name}: ${it.message}")
+        synchronized(installedMethods) {
+            if (method in installedMethods) return
+            runCatching {
+                module.hook(method).intercept(interceptor)
+                installedMethods.add(method)
+            }.onFailure {
+                module.log(Log.WARN, tag, "Could not hook ${method.name}: ${it.message}")
+            }
         }
     }
 
-    private fun findClass(name: String): Class<*>? = runCatching {
-        Class.forName(name, false, classLoader)
+    private fun findClass(name: String, loader: ClassLoader): Class<*>? = runCatching {
+        Class.forName(name, false, loader)
     }.getOrElse {
         module.log(Log.INFO, tag, "Optional Tencent class unavailable: $name")
         null

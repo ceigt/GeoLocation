@@ -85,6 +85,7 @@ class ModuleEntry : XposedModule() {
 
             try {
                 val context = (chain.getArg(0) as Application).applicationContext
+                locationApiHooks?.onApplicationReady(context.classLoader)
                 log(Log.INFO, TAG, "Target App's context has been acquired (${param.packageName}).")
                 if (PreferencesUtil.getIsPlaying() && PreferencesUtil.getHideFakeLocationToast() != true) {
                     Toast.makeText(context, "Fake Location Is Active!", Toast.LENGTH_SHORT).show()

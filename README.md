@@ -6,6 +6,8 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 
 本项目从 `wchunlin1006/LocusMimic` 的最后一个公开完整源码标签 `10100-1.1.0`（提交 `2e4c55a`）派生。仓库检查显示该标签包含 46 个 Kotlin/Java 源文件；`10201-1.2.1` 及之后的标签不再包含应用源码。本项目没有反编译、复制或绕过后续闭源版本的订阅逻辑。
 
+1.2.3 的兼容性排查参考了官方 2.0.1 APK 的定位监听器登记与应用初始化后重试行为，新增代码独立编写；没有将反编译源码或原版 APK 纳入本仓库。分析范围不涉及订阅授权逻辑。
+
 该代码继续来源于 [noobexon1/XposedFakeLocation](https://github.com/noobexon1/XposedFakeLocation) 和 [auag0/HideMockLocation](https://github.com/auag0/HideMockLocation)。请保留 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。
 
 ## 当前功能
@@ -19,12 +21,14 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 
 ## 安装
 
-1. 安装 `GeoLocation-1.2.2-debug-*.apk`，Android 11 或更高版本。
+1. 安装 Release 附件中的 `GeoLocation-1.2.3-debug.apk`，Android 11 或更高版本。
 2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
 3. 打开 GeoLocation，在“受影响的应用”中选择测试目标。切换作用域后重新启动目标应用。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。
 
 Mock Provider 模式需要在 Android 开发者选项中把 GeoLocation 设为模拟位置信息应用。系统级 Hook 会影响更广的定位链路，只应在受控测试设备上启用。升级时必须使用同一签名；首次换用自己的签名需要先卸载旧的 GeoLocation 构建。
+
+**1.2.3 为待真机确认的预发布版本。** 1.2.2 在已反馈的微信/企业微信环境中仍返回真实位置；1.2.3 补充 Android 主动回调与 SDK 初始化后重试，不能据此保证所有腾讯定位通道已覆盖。验证方式见 [定位排查说明](docs/LOCATION_DIAGNOSTICS.md)。
 
 ## 构建
 

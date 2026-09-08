@@ -61,6 +61,7 @@ object PreferencesUtil {
     @Volatile private var registeredPrefs: SharedPreferences? = null
     @Volatile private var cache: PreferencesSnapshot = PreferencesSnapshot()
     @Volatile private var lastRefreshNanos: Long = 0L
+    private var lastDiagnostic: String? = null
 
     // IMPORTANT: keep a strong reference. SharedPreferences holds listeners *weakly*,
     // so a listener that isn't referenced anywhere gets GC'd and silently stops firing.
@@ -178,6 +179,12 @@ object PreferencesUtil {
             )
         )
         lastRefreshNanos = SystemClock.elapsedRealtimeNanos()
+        val diagnostic = "hookActive=${cache.isPlaying}, mockProvider=$mockProviderEnabled, " +
+            "hasPoint=${cache.lastClickedLocation != null}, systemHooks=${cache.enableSystemHooks}"
+        if (diagnostic != lastDiagnostic) {
+            lastDiagnostic = diagnostic
+            log(diagnostic)
+        }
     }
 
     private fun parseLastClickedLocation(json: String?): LastClickedLocation? {
