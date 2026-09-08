@@ -50,11 +50,14 @@ jobs:
 
       - name: Restore signing and map configuration
         env:
-          KEYSTORE_BASE64: ${{ secrets.GEOMIMIC_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.GEOMIMIC_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.GEOMIMIC_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.GEOMIMIC_KEY_PASSWORD }}
-          BAIDU_WEB_AK: ${{ secrets.GEOMIMIC_BAIDU_WEB_AK }}
+          KEYSTORE_BASE64: ${{ secrets.GEOLOCATION_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.GEOLOCATION_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.GEOLOCATION_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.GEOLOCATION_KEY_PASSWORD }}
+          BAIDU_WEB_AK: ${{ secrets.GEOLOCATION_BAIDU_WEB_AK }}
+          AMAP_WEB_KEY: ${{ secrets.GEOLOCATION_AMAP_WEB_KEY }}
+          AMAP_SECURITY_CODE: ${{ secrets.GEOLOCATION_AMAP_SECURITY_CODE }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GEOLOCATION_GOOGLE_MAPS_API_KEY }}
         shell: bash
         run: |
           for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD BAIDU_WEB_AK; do
@@ -71,7 +74,9 @@ jobs:
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
-          printf 'BAIDU_WEB_AK=%s\n' "$BAIDU_WEB_AK" > local.properties
+          printf 'BAIDU_WEB_AK=%s\nAMAP_WEB_KEY=%s\nAMAP_SECURITY_CODE=%s\nGOOGLE_MAPS_API_KEY=%s\n' \
+            "$BAIDU_WEB_AK" "$AMAP_WEB_KEY" "$AMAP_SECURITY_CODE" "$GOOGLE_MAPS_API_KEY" \
+            > local.properties
 
       - name: Build release APK
         run: ./gradlew --no-daemon :app:assembleRelease -PappVersionName="${{ steps.version.outputs.version }}"

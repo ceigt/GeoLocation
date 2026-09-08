@@ -139,6 +139,10 @@ fun MapScreen(
     val settingsViewModel: SettingsViewModel = viewModel()
     val locationMode by settingsViewModel.locationMode.collectAsStateWithLifecycle()
     val baiduMapAk by settingsViewModel.baiduMapAk.collectAsStateWithLifecycle()
+    val mapProvider by settingsViewModel.mapProvider.collectAsStateWithLifecycle()
+    val amapWebKey by settingsViewModel.amapWebKey.collectAsStateWithLifecycle()
+    val amapSecurityCode by settingsViewModel.amapSecurityCode.collectAsStateWithLifecycle()
+    val googleMapsApiKey by settingsViewModel.googleMapsApiKey.collectAsStateWithLifecycle()
     val isPlaying = uiState.isPlaying
     val isFabClickable = uiState.isFabClickable
     val showAddToFavoritesDialog = uiState.addToFavoritesDialogState == DialogState.Visible
@@ -171,7 +175,11 @@ fun MapScreen(
             ) {
                 MapViewContainer(
                     mapViewModel = mapViewModel,
+                    mapProvider = mapProvider,
                     baiduMapAk = baiduMapAk,
+                    amapWebKey = amapWebKey,
+                    amapSecurityCode = amapSecurityCode,
+                    googleMapsApiKey = googleMapsApiKey,
                     onMapInteraction = {
                         dismissSearch()
                         showOptionsMenu = false

@@ -74,11 +74,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.github.ceigt.geolocation.R
+import io.github.ceigt.geolocation.data.MapProvider
 import io.github.ceigt.geolocation.manager.control.ControlReceiver
 import io.github.ceigt.geolocation.manager.localization.LanguageOption
 import io.github.ceigt.geolocation.manager.localization.LocaleController
@@ -98,6 +100,8 @@ private val MiuixPageBackground = Color(0xFFF3F6F5)
 private val MiuixCardSurface = Color(0xFFFFFFFF)
 private const val BAIDU_AK_CONSOLE_URL = "https://lbsyun.baidu.com/apiconsole/key#/home"
 private const val BAIDU_MAP_REFERER_HOST = "appassets.androidplatform.net"
+private const val AMAP_CONSOLE_URL = "https://console.amap.com/dev/key/app"
+private const val GOOGLE_MAPS_CONSOLE_URL = "https://console.cloud.google.com/google/maps-apis/credentials"
 
 private object SettingDefinitions {
     @Composable
@@ -393,8 +397,18 @@ fun SettingsScreen(
                     elevation = CardDefaults.cardElevation(defaultElevation = Dimensions.CARD_ELEVATION)
                 ) {
                     MapServiceSettings(
+                        provider = settingsViewModel.mapProvider.collectAsState().value,
+                        onProviderSelected = settingsViewModel::setMapProvider,
                         baiduMapAk = settingsViewModel.baiduMapAk.collectAsState().value,
-                        onSave = settingsViewModel::setBaiduMapAk,
+                        amapWebKey = settingsViewModel.amapWebKey.collectAsState().value,
+                        amapSecurityCode = settingsViewModel.amapSecurityCode.collectAsState().value,
+                        googleMapsApiKey = settingsViewModel.googleMapsApiKey.collectAsState().value,
+                        onSaveBaidu = settingsViewModel::setBaiduMapAk,
+                        onSaveAmap = { key, code ->
+                            settingsViewModel.setAmapWebKey(key)
+                            settingsViewModel.setAmapSecurityCode(code)
+                        },
+                        onSaveGoogle = settingsViewModel::setGoogleMapsApiKey,
                         onSaved = {
                             cacheScope.launch {
                                 snackbarHostState.showSnackbar(context.getString(R.string.setting_map_ak_saved))
@@ -593,8 +607,18 @@ fun SettingsBottomSheet(
                 }
                 SettingsSheetSection(stringResource(R.string.category_map_service)) {
                     MapServiceSettings(
+                        provider = settingsViewModel.mapProvider.collectAsState().value,
+                        onProviderSelected = settingsViewModel::setMapProvider,
                         baiduMapAk = settingsViewModel.baiduMapAk.collectAsState().value,
-                        onSave = settingsViewModel::setBaiduMapAk,
+                        amapWebKey = settingsViewModel.amapWebKey.collectAsState().value,
+                        amapSecurityCode = settingsViewModel.amapSecurityCode.collectAsState().value,
+                        googleMapsApiKey = settingsViewModel.googleMapsApiKey.collectAsState().value,
+                        onSaveBaidu = settingsViewModel::setBaiduMapAk,
+                        onSaveAmap = { key, code ->
+                            settingsViewModel.setAmapWebKey(key)
+                            settingsViewModel.setAmapSecurityCode(code)
+                        },
+                        onSaveGoogle = settingsViewModel::setGoogleMapsApiKey,
                         onSaved = {
                             cacheScope.launch {
                                 snackbarHostState.showSnackbar(context.getString(R.string.setting_map_ak_saved))
@@ -664,22 +688,96 @@ private fun SettingsSheetSection(
 
 @Composable
 private fun MapServiceSettings(
+    provider: MapProvider,
+    onProviderSelected: (MapProvider) -> Unit,
     baiduMapAk: String,
-    onSave: (String) -> Unit,
+    amapWebKey: String,
+    amapSecurityCode: String,
+    googleMapsApiKey: String,
+    onSaveBaidu: (String) -> Unit,
+    onSaveAmap: (String, String) -> Unit,
+    onSaveGoogle: (String) -> Unit,
     onSaved: () -> Unit,
     onClearMapCache: () -> Unit
 ) {
     Column {
-        BaiduMapAkSetting(
-            baiduMapAk = baiduMapAk,
-            onSave = onSave,
-            onSaved = onSaved
+        MapProviderSelector(provider, onProviderSelected)
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = Dimensions.SPACING_MEDIUM),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
         )
+        when (provider) {
+            MapProvider.BAIDU -> BaiduMapAkSetting(baiduMapAk, onSaveBaidu, onSaved)
+            MapProvider.AMAP -> AmapCredentialSetting(
+                amapWebKey,
+                amapSecurityCode,
+                onSaveAmap,
+                onSaved
+            )
+            MapProvider.GOOGLE -> GoogleCredentialSetting(
+                googleMapsApiKey,
+                onSaveGoogle,
+                onSaved
+            )
+        }
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = Dimensions.SPACING_MEDIUM),
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
         )
         MapCacheSetting(onClearMapCache)
+    }
+}
+
+@Composable
+private fun MapProviderSelector(
+    provider: MapProvider,
+    onProviderSelected: (MapProvider) -> Unit
+) {
+    Column(modifier = Modifier.padding(Dimensions.SPACING_MEDIUM)) {
+        Text(
+            text = stringResource(R.string.setting_map_provider_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = stringResource(R.string.setting_map_provider_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Dimensions.SPACING_EXTRA_SMALL)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = Dimensions.SPACING_MEDIUM),
+            horizontalArrangement = Arrangement.spacedBy(Dimensions.SPACING_SMALL)
+        ) {
+            MapProvider.entries.forEach { option ->
+                val selected = option == provider
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onProviderSelected(option) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = stringResource(
+                            when (option) {
+                                MapProvider.BAIDU -> R.string.map_provider_baidu
+                                MapProvider.AMAP -> R.string.map_provider_amap
+                                MapProvider.GOOGLE -> R.string.map_provider_google
+                            }
+                        ),
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -790,6 +888,122 @@ private fun BaiduMapAkSetting(
         }
     }
 
+}
+
+@Composable
+private fun AmapCredentialSetting(
+    webKey: String,
+    securityCode: String,
+    onSave: (String, String) -> Unit,
+    onSaved: () -> Unit
+) {
+    val context = LocalContext.current
+    var draftKey by remember(webKey) { mutableStateOf(webKey) }
+    var draftSecurityCode by remember(securityCode) { mutableStateOf(securityCode) }
+    CredentialSection(
+        title = stringResource(R.string.setting_amap_credentials_title),
+        description = stringResource(R.string.setting_amap_credentials_description),
+        fields = listOf(
+            CredentialField(stringResource(R.string.setting_amap_web_key), draftKey) {
+                draftKey = it
+            },
+            CredentialField(stringResource(R.string.setting_amap_security_code), draftSecurityCode) {
+                draftSecurityCode = it
+            }
+        ),
+        onOpenConsole = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AMAP_CONSOLE_URL))) },
+        onSave = {
+            onSave(draftKey.trim(), draftSecurityCode.trim())
+            onSaved()
+        }
+    )
+}
+
+@Composable
+private fun GoogleCredentialSetting(
+    apiKey: String,
+    onSave: (String) -> Unit,
+    onSaved: () -> Unit
+) {
+    val context = LocalContext.current
+    var draftKey by remember(apiKey) { mutableStateOf(apiKey) }
+    CredentialSection(
+        title = stringResource(R.string.setting_google_credentials_title),
+        description = stringResource(R.string.setting_google_credentials_description),
+        fields = listOf(
+            CredentialField(stringResource(R.string.setting_google_api_key), draftKey) {
+                draftKey = it
+            }
+        ),
+        onOpenConsole = {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(GOOGLE_MAPS_CONSOLE_URL)))
+        },
+        onSave = {
+            onSave(draftKey.trim())
+            onSaved()
+        }
+    )
+}
+
+private data class CredentialField(
+    val label: String,
+    val value: String,
+    val onValueChange: (String) -> Unit
+)
+
+@Composable
+private fun CredentialSection(
+    title: String,
+    description: String,
+    fields: List<CredentialField>,
+    onOpenConsole: () -> Unit,
+    onSave: () -> Unit
+) {
+    Column(modifier = Modifier.padding(Dimensions.SPACING_MEDIUM)) {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Dimensions.SPACING_EXTRA_SMALL)
+        )
+        fields.forEach { field ->
+            OutlinedTextField(
+                value = field.value,
+                onValueChange = field.onValueChange,
+                label = { Text(field.label) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = Dimensions.SPACING_SMALL)
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = Dimensions.SPACING_SMALL),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Text(
+                text = stringResource(R.string.setting_map_open_console),
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(horizontal = Dimensions.SPACING_MEDIUM, vertical = 4.dp)
+                    .clickable(onClick = onOpenConsole)
+            )
+            Text(
+                text = stringResource(R.string.setting_map_ak_save),
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .padding(vertical = 4.dp)
+                    .clickable(onClick = onSave)
+            )
+        }
+    }
 }
 
 @Composable

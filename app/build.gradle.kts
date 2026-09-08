@@ -11,7 +11,7 @@ plugins {
 
 // Version is derived from the release tag in CI (passed via -PappVersionName=vX.Y.Z or the
 // APP_VERSION_NAME env var). Local builds fall back to the dev version below.
-val fallbackVersionName = "1.0.0"
+val fallbackVersionName = "1.2.0"
 
 fun resolveVersionName(): String {
     val provided = (project.findProperty("appVersionName") as String?)
@@ -80,6 +80,21 @@ android {
             "String",
             "BAIDU_WEB_AK",
             "\"${localProperties.getProperty("BAIDU_WEB_AK", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "AMAP_WEB_KEY",
+            "\"${localProperties.getProperty("AMAP_WEB_KEY", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "AMAP_SECURITY_CODE",
+            "\"${localProperties.getProperty("AMAP_SECURITY_CODE", "")}\""
+        )
+        buildConfigField(
+            "String",
+            "GOOGLE_MAPS_API_KEY",
+            "\"${localProperties.getProperty("GOOGLE_MAPS_API_KEY", "")}\""
         )
     }
 

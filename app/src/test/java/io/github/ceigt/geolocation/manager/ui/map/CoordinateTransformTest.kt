@@ -24,4 +24,14 @@ class CoordinateTransformTest {
         assertEquals(london.latitude, result.latitude, 0.0)
         assertEquals(london.longitude, result.longitude, 0.0)
     }
+
+    @Test
+    fun `amap gcj02 display coordinate converts back to stored wgs84`() {
+        val wgs = GeoPoint(latitude = 31.2304, longitude = 121.4737)
+        val gcj = CoordinateTransform.wgs84ToGcj02(wgs.latitude, wgs.longitude)
+        val restored = CoordinateTransform.gcj02ToWgs84(gcj)
+
+        assertEquals(wgs.latitude, restored.latitude, 0.00002)
+        assertEquals(wgs.longitude, restored.longitude, 0.00002)
+    }
 }

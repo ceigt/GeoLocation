@@ -396,4 +396,36 @@ class PreferencesRepository(context: Context) {
 
     suspend fun saveBaiduMapAk(ak: String) = editLocal { putString(KEY_BAIDU_MAP_AK, ak.trim()) }
     // endregion
+
+    // region Web map provider and credentials (local)
+    fun getMapProviderFlow(): Flow<MapProvider> = localFlow(KEY_MAP_PROVIDER) {
+        MapProvider.fromStored(it.getString(KEY_MAP_PROVIDER, DEFAULT_MAP_PROVIDER))
+    }
+
+    suspend fun saveMapProvider(provider: MapProvider) =
+        editLocal { putString(KEY_MAP_PROVIDER, provider.storedValue) }
+
+    fun getAmapWebKeyFlow(): Flow<String> = localFlow(KEY_AMAP_WEB_KEY) {
+        it.getString(KEY_AMAP_WEB_KEY, DEFAULT_AMAP_WEB_KEY) ?: DEFAULT_AMAP_WEB_KEY
+    }
+
+    suspend fun saveAmapWebKey(key: String) =
+        editLocal { putString(KEY_AMAP_WEB_KEY, key.trim()) }
+
+    fun getAmapSecurityCodeFlow(): Flow<String> = localFlow(KEY_AMAP_SECURITY_CODE) {
+        it.getString(KEY_AMAP_SECURITY_CODE, DEFAULT_AMAP_SECURITY_CODE)
+            ?: DEFAULT_AMAP_SECURITY_CODE
+    }
+
+    suspend fun saveAmapSecurityCode(code: String) =
+        editLocal { putString(KEY_AMAP_SECURITY_CODE, code.trim()) }
+
+    fun getGoogleMapsApiKeyFlow(): Flow<String> = localFlow(KEY_GOOGLE_MAPS_API_KEY) {
+        it.getString(KEY_GOOGLE_MAPS_API_KEY, DEFAULT_GOOGLE_MAPS_API_KEY)
+            ?: DEFAULT_GOOGLE_MAPS_API_KEY
+    }
+
+    suspend fun saveGoogleMapsApiKey(key: String) =
+        editLocal { putString(KEY_GOOGLE_MAPS_API_KEY, key.trim()) }
+    // endregion
 }

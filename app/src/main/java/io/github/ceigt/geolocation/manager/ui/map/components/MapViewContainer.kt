@@ -9,6 +9,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -49,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.ceigt.geolocation.BuildConfig
 import io.github.ceigt.geolocation.R
 import io.github.ceigt.geolocation.data.DEFAULT_MAP_ZOOM
+import io.github.ceigt.geolocation.data.MapProvider
 import io.github.ceigt.geolocation.data.WORLD_MAP_ZOOM
 import io.github.ceigt.geolocation.manager.ui.map.CoordinateTransform
 import io.github.ceigt.geolocation.manager.ui.map.GeoPoint
@@ -63,7 +65,11 @@ import java.util.ArrayDeque
 @Composable
 fun MapViewContainer(
     mapViewModel: MapViewModel,
+    mapProvider: MapProvider,
     baiduMapAk: String,
+    amapWebKey: String,
+    amapSecurityCode: String,
+    googleMapsApiKey: String,
     onMapInteraction: () -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -95,7 +101,11 @@ fun MapViewContainer(
     }
 
     if (isMapForeground) {
-        ActiveWebMapContainer(mapViewModel, baiduMapAk, onMapInteraction)
+        ActiveWebMapContainer(
+            mapViewModel,
+            WebMapConfig(mapProvider, baiduMapAk, amapWebKey, amapSecurityCode, googleMapsApiKey),
+            onMapInteraction
+        )
     } else {
         // Removing the WebView stops JavaScript and releases its renderer while the app is hidden.
         Box(modifier = Modifier.fillMaxSize())
@@ -105,22 +115,22 @@ fun MapViewContainer(
 @Composable
 private fun ActiveWebMapContainer(
     mapViewModel: MapViewModel,
-    baiduMapAk: String,
+    requestedConfig: WebMapConfig,
     onMapInteraction: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
     val currentIsPlaying by rememberUpdatedState(uiState.isPlaying)
     val currentOnMapInteraction by rememberUpdatedState(onMapInteraction)
-    val effectiveBaiduMapAk = baiduMapAk.trim().ifBlank { BuildConfig.BAIDU_WEB_AK }
+    val config = requestedConfig.withBuildDefaults()
     val callbacks = remember { WebMapCallbacks() }
-    val controller = remember(context, effectiveBaiduMapAk) {
-        createWebMapController(context, callbacks, effectiveBaiduMapAk)
+    val controller = remember(context, config) {
+        createWebMapController(context, callbacks, config)
     }
     val loadErrorMessage = stringResource(R.string.map_load_error)
-    var errorShown by remember(effectiveBaiduMapAk) { mutableStateOf(false) }
+    var errorShown by remember(config) { mutableStateOf(false) }
 
-    LaunchedEffect(effectiveBaiduMapAk) {
+    LaunchedEffect(config) {
         mapViewModel.setLoadingStarted()
     }
 
@@ -140,14 +150,14 @@ private fun ActiveWebMapContainer(
     callbacks.onMapClicked = { latitude, longitude ->
         currentOnMapInteraction()
         if (!currentIsPlaying) {
-            val wgs84 = CoordinateTransform.bd09ToWgs84(GeoPoint(latitude, longitude))
+            val wgs84 = config.provider.toWgs84(GeoPoint(latitude, longitude))
             mapViewModel.updateClickedLocation(wgs84)
         }
     }
     callbacks.onZoomChanged = mapViewModel::updateMapZoom
     callbacks.onSearchResults = { query, payload, success ->
         if (success) {
-            mapViewModel.onPlaceSearchCompleted(query, parseSearchResults(payload))
+            mapViewModel.onPlaceSearchCompleted(query, parseSearchResults(payload, config.provider))
         } else {
             mapViewModel.onPlaceSearchFailed(query)
         }
@@ -163,16 +173,16 @@ private fun ActiveWebMapContainer(
     }
 
     ManageWebViewLifecycle(controller)
-    HandleMapCommands(context, controller, mapViewModel)
+    HandleMapCommands(context, controller, mapViewModel, config.provider)
 
     LaunchedEffect(controller, uiState.lastClickedLocation) {
         val selected = uiState.lastClickedLocation
         if (selected == null) {
             controller.clearSelectedLocation()
         } else {
-            controller.setSelectedLocation(CoordinateTransform.wgs84ToBd09(selected))
+            controller.setSelectedLocation(config.provider.fromWgs84(selected))
             controller.center(
-                CoordinateTransform.wgs84ToBd09(selected),
+                config.provider.fromWgs84(selected),
                 uiState.mapZoom ?: DEFAULT_MAP_ZOOM
             )
         }
@@ -184,11 +194,11 @@ private fun ActiveWebMapContainer(
             if (location != null) {
                 mapViewModel.updateUserLocation(location.point)
                 controller.showUserLocation(
-                    CoordinateTransform.wgs84ToBd09(location.point),
+                    config.provider.fromWgs84(location.point),
                     location.accuracy
                 )
                 controller.center(
-                    CoordinateTransform.wgs84ToBd09(location.point),
+                    config.provider.fromWgs84(location.point),
                     DEFAULT_MAP_ZOOM
                 )
             } else {
@@ -218,7 +228,8 @@ private fun ActiveWebMapContainer(
 private fun HandleMapCommands(
     context: Context,
     controller: WebMapController,
-    mapViewModel: MapViewModel
+    mapViewModel: MapViewModel,
+    provider: MapProvider
 ) {
     val unavailableMessage = stringResource(R.string.toast_user_location_not_available)
 
@@ -230,7 +241,7 @@ private fun HandleMapCommands(
                 // Keep the selected simulation point in sync with the user's current position,
                 // using the same WGS-84 selection path as a map tap or manual coordinate entry.
                 mapViewModel.updateClickedLocation(location.point)
-                val displayPoint = CoordinateTransform.wgs84ToBd09(location.point)
+                val displayPoint = provider.fromWgs84(location.point)
                 controller.showUserLocation(displayPoint, location.accuracy)
                 controller.center(displayPoint, DEFAULT_MAP_ZOOM)
             } else {
@@ -241,7 +252,7 @@ private fun HandleMapCommands(
 
     LaunchedEffect(controller) {
         mapViewModel.goToPointEvent.collect { point ->
-            controller.center(CoordinateTransform.wgs84ToBd09(point), DEFAULT_MAP_ZOOM)
+            controller.center(provider.fromWgs84(point), DEFAULT_MAP_ZOOM)
             mapViewModel.updateClickedLocation(point)
         }
     }
@@ -252,7 +263,7 @@ private fun HandleMapCommands(
 
     LaunchedEffect(controller) {
         mapViewModel.reverseGeocodeEvent.collect { point ->
-            controller.reverseGeocode(point, CoordinateTransform.wgs84ToBd09(point))
+            controller.reverseGeocode(point, provider.fromWgs84(point))
         }
     }
 }
@@ -261,7 +272,7 @@ private fun HandleMapCommands(
 private fun createWebMapController(
     context: Context,
     callbacks: WebMapCallbacks,
-    baiduMapAk: String
+    config: WebMapConfig
 ): WebMapController {
     val webView = WebView(context).apply {
         setBackgroundColor(Color.rgb(244, 250, 248))
@@ -303,8 +314,11 @@ private fun createWebMapController(
         addJavascriptInterface(WebMapBridge(callbacks), JS_BRIDGE_NAME)
     }
 
-    val html = context.assets.open(MAP_ASSET_PATH).bufferedReader().use { it.readText() }
-        .replace(AK_PLACEHOLDER, baiduMapAk)
+    val html = context.assets.open(config.provider.assetPath).bufferedReader().use { it.readText() }
+        .replace(BAIDU_AK_PLACEHOLDER, Uri.encode(config.baiduMapAk))
+        .replace(AMAP_KEY_PLACEHOLDER, Uri.encode(config.amapWebKey))
+        .replace(AMAP_SECURITY_PLACEHOLDER, JSONObject.quote(config.amapSecurityCode))
+        .replace(GOOGLE_KEY_PLACEHOLDER, Uri.encode(config.googleMapsApiKey))
     webView.loadDataWithBaseURL(APP_ORIGIN, html, "text/html", "UTF-8", null)
     return WebMapController(webView)
 }
@@ -452,17 +466,20 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
     }
 }
 
-private fun parseSearchResults(payload: String): List<PlaceSearchResult> = runCatching {
+private fun parseSearchResults(
+    payload: String,
+    provider: MapProvider
+): List<PlaceSearchResult> = runCatching {
     val json = JSONArray(payload)
     buildList {
         repeat(json.length()) { index ->
             val item = json.optJSONObject(index) ?: return@repeat
-            val bd09 = GeoPoint(
+            val displayPoint = GeoPoint(
                 latitude = item.optDouble("latitude", Double.NaN),
                 longitude = item.optDouble("longitude", Double.NaN)
             )
-            if (!bd09.latitude.isFinite() || !bd09.longitude.isFinite()) return@repeat
-            val wgs84 = CoordinateTransform.bd09ToWgs84(bd09)
+            if (!displayPoint.latitude.isFinite() || !displayPoint.longitude.isFinite()) return@repeat
+            val wgs84 = provider.toWgs84(displayPoint)
             add(
                 PlaceSearchResult(
                     name = item.optString("name").ifBlank { "${wgs84.latitude}, ${wgs84.longitude}" },
@@ -539,7 +556,43 @@ private data class ReverseGeocodeDisplay(
     val poiTitle: String?
 )
 
+private data class WebMapConfig(
+    val provider: MapProvider,
+    val baiduMapAk: String,
+    val amapWebKey: String,
+    val amapSecurityCode: String,
+    val googleMapsApiKey: String
+) {
+    fun withBuildDefaults(): WebMapConfig = copy(
+        baiduMapAk = baiduMapAk.trim().ifBlank { BuildConfig.BAIDU_WEB_AK },
+        amapWebKey = amapWebKey.trim().ifBlank { BuildConfig.AMAP_WEB_KEY },
+        amapSecurityCode = amapSecurityCode.trim().ifBlank { BuildConfig.AMAP_SECURITY_CODE },
+        googleMapsApiKey = googleMapsApiKey.trim().ifBlank { BuildConfig.GOOGLE_MAPS_API_KEY }
+    )
+}
+
+private val MapProvider.assetPath: String
+    get() = when (this) {
+        MapProvider.BAIDU -> "map/baidu_map.html"
+        MapProvider.AMAP -> "map/amap_map.html"
+        MapProvider.GOOGLE -> "map/google_map.html"
+    }
+
+private fun MapProvider.fromWgs84(point: GeoPoint): GeoPoint = when (this) {
+    MapProvider.BAIDU -> CoordinateTransform.wgs84ToBd09(point)
+    MapProvider.AMAP -> CoordinateTransform.wgs84ToGcj02(point.latitude, point.longitude)
+    MapProvider.GOOGLE -> point
+}
+
+private fun MapProvider.toWgs84(point: GeoPoint): GeoPoint = when (this) {
+    MapProvider.BAIDU -> CoordinateTransform.bd09ToWgs84(point)
+    MapProvider.AMAP -> CoordinateTransform.gcj02ToWgs84(point)
+    MapProvider.GOOGLE -> point
+}
+
 private const val APP_ORIGIN = "https://appassets.androidplatform.net/"
-private const val MAP_ASSET_PATH = "map/baidu_map.html"
-private const val AK_PLACEHOLDER = "__BAIDU_WEB_AK__"
+private const val BAIDU_AK_PLACEHOLDER = "__BAIDU_WEB_AK__"
+private const val AMAP_KEY_PLACEHOLDER = "__AMAP_WEB_KEY__"
+private const val AMAP_SECURITY_PLACEHOLDER = "__AMAP_SECURITY_CODE_JSON__"
+private const val GOOGLE_KEY_PLACEHOLDER = "__GOOGLE_MAPS_API_KEY__"
 private const val JS_BRIDGE_NAME = "AndroidMap"

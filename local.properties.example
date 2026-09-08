@@ -1,2 +1,5 @@
 # Do not commit local.properties. Obtain this key from Baidu Map Open Platform.
 BAIDU_WEB_AK=replace-with-your-baidu-web-api-key
+AMAP_WEB_KEY=replace-with-your-amap-web-key
+AMAP_SECURITY_CODE=replace-with-your-amap-security-js-code
+GOOGLE_MAPS_API_KEY=replace-with-your-google-maps-api-key

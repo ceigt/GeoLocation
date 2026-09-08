@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>GeoLocation Google Maps</title>
+    <style>html,body,#map{width:100%;height:100%;margin:0;overflow:hidden;background:#f4faf8}</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+(() => {
+    'use strict';
+    let map=null, selectedMarker=null, userMarker=null, geocoder=null;
+    const pending=[];
+    const callAndroid=(method,...args)=>{ try { if(window.AndroidMap&&typeof window.AndroidMap[method]==='function') window.AndroidMap[method](...args); } catch(_){} };
+    const withMap=action=>{ if(map) action(); else pending.push(action); };
+    const latLng=(lat,lng)=>({lat:Number(lat),lng:Number(lng)});
+    const quotaError=value=>/OVER_QUERY_LIMIT|RESOURCE_EXHAUSTED|QUOTA/i.test(String(value||''));
+
+    window.TraceMap={
+        center(latitude,longitude,zoom){ withMap(()=>{ map.panTo(latLng(latitude,longitude)); map.setZoom(Number(zoom)); }); },
+        setSelectedLocation(latitude,longitude){ withMap(()=>{ if(selectedMarker) selectedMarker.setMap(null); selectedMarker=new google.maps.Marker({position:latLng(latitude,longitude),map:map}); }); },
+        clearSelectedLocation(){ withMap(()=>{ if(selectedMarker) selectedMarker.setMap(null); selectedMarker=null; }); },
+        showUserLocation(latitude,longitude){ withMap(()=>{ if(userMarker) userMarker.setMap(null); userMarker=new google.maps.Marker({position:latLng(latitude,longitude),map:map,icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:'#1677ff',fillOpacity:1,strokeColor:'#ffffff',strokeWeight:4}}); }); },
+        search(query){
+            withMap(async()=>{
+                const requestedQuery=String(query||'').trim();
+                if(!requestedQuery){ callAndroid('onSearchResults',requestedQuery,'[]',true); return; }
+                try {
+                    const {Place}=await google.maps.importLibrary('places');
+                    const response=await Place.searchByText({textQuery:requestedQuery,fields:['displayName','formattedAddress','location'],maxResultCount:5,locationBias:map.getBounds()||undefined});
+                    const values=(response.places||[]).slice(0,5).filter(place=>place.location).map(place=>({name:place.displayName||requestedQuery,address:place.formattedAddress||'',latitude:place.location.lat(),longitude:place.location.lng()}));
+                    callAndroid('onSearchResults',requestedQuery,JSON.stringify(values),true);
+                } catch(error){ if(quotaError(error&&error.code||error)) callAndroid('onMapServiceQuotaExceeded'); callAndroid('onSearchResults',requestedQuery,'[]',false); }
+            });
+        },
+        reverseGeocode(wgsLatitude,wgsLongitude,displayLatitude,displayLongitude){
+            withMap(async()=>{
+                try {
+                    geocoder=geocoder||new google.maps.Geocoder();
+                    const response=await geocoder.geocode({location:latLng(displayLatitude,displayLongitude)});
+                    const first=response.results&&response.results[0];
+                    const address=first&&first.formatted_address?first.formatted_address:'';
+                    const locality=first&&first.address_components?first.address_components.find(item=>item.types&&item.types.includes('locality')):null;
+                    callAndroid('onReverseGeocodeResult',Number(wgsLatitude),Number(wgsLongitude),JSON.stringify({address:address,poiTitle:first&&first.types&&first.types[0]?first.types[0]:'',city:locality?locality.long_name:''}),Boolean(address));
+                } catch(error){ if(quotaError(error&&error.code||error)) callAndroid('onMapServiceQuotaExceeded'); callAndroid('onReverseGeocodeResult',Number(wgsLatitude),Number(wgsLongitude),'{}',false); }
+            });
+        }
+    };
+
+    window.initGoogleTraceMap=()=>{
+        try {
+            map=new google.maps.Map(document.getElementById('map'),{center:{lat:0,lng:0},zoom:2,streetViewControl:false,mapTypeControl:false,fullscreenControl:false});
+            map.addListener('click',event=>{ if(event&&event.latLng) callAndroid('onMapClicked',event.latLng.lat(),event.latLng.lng()); });
+            map.addListener('dragstart',()=>callAndroid('onMapInteraction'));
+            map.addListener('zoom_changed',()=>{ if(map) callAndroid('onZoomChanged',map.getZoom()||2); });
+            while(pending.length) pending.shift()();
+            callAndroid('onMapReady');
+        } catch(_){ callAndroid('onMapError'); }
+    };
+
+    const api=document.createElement('script');
+    api.src='https://maps.googleapis.com/maps/api/js?key=__GOOGLE_MAPS_API_KEY__&loading=async&callback=initGoogleTraceMap';
+    api.async=true;
+    api.onerror=()=>callAndroid('onMapError');
+    document.head.appendChild(api);
+})();
+</script>
+</body>
+</html>

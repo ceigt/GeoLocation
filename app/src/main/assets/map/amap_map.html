@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>GeoLocation AMap</title>
+    <style>
+        html, body, #map { width:100%; height:100%; margin:0; overflow:hidden; background:#f4faf8; }
+        .pin { width:24px; height:24px; border:3px solid white; border-radius:50% 50% 50% 0; background:#1677ff; transform:rotate(-45deg); box-shadow:0 2px 5px #0004; }
+        .user { width:18px; height:18px; border:4px solid white; border-radius:50%; background:#1677ff; box-shadow:0 0 0 10px #1677ff33; }
+    </style>
+    <script>window._AMapSecurityConfig={securityJsCode:__AMAP_SECURITY_CODE_JSON__};</script>
+</head>
+<body>
+<div id="map"></div>
+<script>
+(() => {
+    'use strict';
+    let map=null, selectedMarker=null, userMarker=null, geocoder=null, searchCity='';
+    const pending=[];
+    const callAndroid=(method,...args)=>{ try { if(window.AndroidMap&&typeof window.AndroidMap[method]==='function') window.AndroidMap[method](...args); } catch(_){} };
+    const withMap=action=>{ if(map) action(); else pending.push(action); };
+    const lngLat=(lat,lng)=>new AMap.LngLat(Number(lng),Number(lat));
+    const positionOf=value=>({latitude:Number(value.getLat?value.getLat():value.lat),longitude:Number(value.getLng?value.getLng():value.lng)});
+    const quotaError=info=>/LIMIT|QUOTA|DAILY_QUERY_OVER/i.test(String(info||''));
+
+    window.TraceMap={
+        center(latitude,longitude,zoom){ withMap(()=>{ map.setCenter(lngLat(latitude,longitude)); map.setZoom(Number(zoom)); }); },
+        setSelectedLocation(latitude,longitude){ withMap(()=>{ if(selectedMarker) map.remove(selectedMarker); selectedMarker=new AMap.Marker({position:lngLat(latitude,longitude),content:'<div class="pin"></div>',offset:new AMap.Pixel(-14,-28)}); map.add(selectedMarker); }); },
+        clearSelectedLocation(){ withMap(()=>{ if(selectedMarker) map.remove(selectedMarker); selectedMarker=null; }); },
+        showUserLocation(latitude,longitude){ withMap(()=>{ if(userMarker) map.remove(userMarker); userMarker=new AMap.Marker({position:lngLat(latitude,longitude),content:'<div class="user"></div>',offset:new AMap.Pixel(-13,-13)}); map.add(userMarker); }); },
+        search(query){
+            withMap(()=>{
+                const requestedQuery=String(query||'').trim();
+                if(!requestedQuery){ callAndroid('onSearchResults',requestedQuery,'[]',true); return; }
+                const service=new AMap.PlaceSearch({pageSize:5,pageIndex:1,city:searchCity||undefined,citylimit:false});
+                service.search(requestedQuery,(status,result)=>{
+                    if(quotaError(result&&result.info)) callAndroid('onMapServiceQuotaExceeded');
+                    const pois=status==='complete'&&result&&result.poiList&&Array.isArray(result.poiList.pois)?result.poiList.pois:[];
+                    const values=pois.slice(0,5).map(poi=>{ const p=positionOf(poi.location); return {name:poi.name||requestedQuery,address:poi.address||'',latitude:p.latitude,longitude:p.longitude}; });
+                    callAndroid('onSearchResults',requestedQuery,JSON.stringify(values),status==='complete');
+                });
+            });
+        },
+        reverseGeocode(wgsLatitude,wgsLongitude,displayLatitude,displayLongitude){
+            withMap(()=>{
+                geocoder=geocoder||new AMap.Geocoder({radius:500,extensions:'all'});
+                geocoder.getAddress(lngLat(displayLatitude,displayLongitude),(status,result)=>{
+                    if(quotaError(result&&result.info)) callAndroid('onMapServiceQuotaExceeded');
+                    const regeocode=status==='complete'&&result?result.regeocode:null;
+                    const component=regeocode&&regeocode.addressComponent?regeocode.addressComponent:{};
+                    const city=Array.isArray(component.city)?component.province:(component.city||component.province||'');
+                    if(city) searchCity=city;
+                    const pois=regeocode&&Array.isArray(regeocode.pois)?regeocode.pois:[];
+                    const address=regeocode&&regeocode.formattedAddress?String(regeocode.formattedAddress):'';
+                    callAndroid('onReverseGeocodeResult',Number(wgsLatitude),Number(wgsLongitude),JSON.stringify({address:address,poiTitle:pois[0]&&pois[0].name?pois[0].name:'',city:city}),Boolean(address));
+                });
+            });
+        }
+    };
+
+    window.initAmapTraceMap=()=>{
+        try {
+            map=new AMap.Map('map',{zoom:3,center:[0,0],viewMode:'2D',resizeEnable:true});
+            map.on('click',event=>{ if(event&&event.lnglat){ const p=positionOf(event.lnglat); callAndroid('onMapClicked',p.latitude,p.longitude); } });
+            map.on('dragstart',()=>callAndroid('onMapInteraction'));
+            map.on('zoomstart',()=>callAndroid('onMapInteraction'));
+            map.on('zoomend',()=>callAndroid('onZoomChanged',map.getZoom()));
+            while(pending.length) pending.shift()();
+            callAndroid('onMapReady');
+        } catch(_){ callAndroid('onMapError'); }
+    };
+
+    const api=document.createElement('script');
+    api.src='https://webapi.amap.com/maps?v=2.0&key=__AMAP_WEB_KEY__&plugin=AMap.PlaceSearch,AMap.Geocoder&callback=initAmapTraceMap';
+    api.onerror=()=>callAndroid('onMapError');
+    document.head.appendChild(api);
+})();
+</script>
+</body>
+</html>

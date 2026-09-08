@@ -334,6 +334,33 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val baiduMapAk: StateFlow<String> = _baiduMapAkPreference.state
 
+    val mapProvider: StateFlow<MapProvider> = preferencesRepository.getMapProviderFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, MapProvider.BAIDU)
+
+    private val _amapWebKeyPreference = StringPreference(
+        DEFAULT_AMAP_WEB_KEY,
+        preferencesRepository.getAmapWebKeyFlow(),
+        preferencesRepository::saveAmapWebKey,
+        viewModelScope
+    )
+    val amapWebKey: StateFlow<String> = _amapWebKeyPreference.state
+
+    private val _amapSecurityCodePreference = StringPreference(
+        DEFAULT_AMAP_SECURITY_CODE,
+        preferencesRepository.getAmapSecurityCodeFlow(),
+        preferencesRepository::saveAmapSecurityCode,
+        viewModelScope
+    )
+    val amapSecurityCode: StateFlow<String> = _amapSecurityCodePreference.state
+
+    private val _googleMapsApiKeyPreference = StringPreference(
+        DEFAULT_GOOGLE_MAPS_API_KEY,
+        preferencesRepository.getGoogleMapsApiKeyFlow(),
+        preferencesRepository::saveGoogleMapsApiKey,
+        viewModelScope
+    )
+    val googleMapsApiKey: StateFlow<String> = _googleMapsApiKeyPreference.state
+
     // Setter methods for all preferences
     fun setUseAccuracy(value: Boolean) = _useAccuracyPreference.setValue(value)
     fun setAccuracy(value: Double) = _accuracyPreference.setValue(value)
@@ -355,6 +382,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setEnableBroadcastControl(value: Boolean) = _enableBroadcastControlPreference.setValue(value)
     fun setLanguageTag(value: String) = _languageTagPreference.setValue(value)
     fun setBaiduMapAk(value: String) = _baiduMapAkPreference.setValue(value.trim())
+    fun setMapProvider(value: MapProvider) = viewModelScope.launch {
+        preferencesRepository.saveMapProvider(value)
+    }
+    fun setAmapWebKey(value: String) = _amapWebKeyPreference.setValue(value.trim())
+    fun setAmapSecurityCode(value: String) = _amapSecurityCodePreference.setValue(value.trim())
+    fun setGoogleMapsApiKey(value: String) = _googleMapsApiKeyPreference.setValue(value.trim())
 
     fun selectLocationMode(mode: LocationMode) {
         when (mode) {

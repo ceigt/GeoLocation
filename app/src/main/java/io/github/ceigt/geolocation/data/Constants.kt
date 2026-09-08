@@ -46,6 +46,10 @@ const val KEY_HIDE_FAKE_LOCATION_TOAST = "hide_fake_location_toast"
 const val KEY_ENABLE_BROADCAST_CONTROL = "enable_broadcast_control"
 const val KEY_LANGUAGE_TAG = "language_tag"
 const val KEY_BAIDU_MAP_AK = "baidu_map_ak"
+const val KEY_MAP_PROVIDER = "map_provider"
+const val KEY_AMAP_WEB_KEY = "amap_web_key"
+const val KEY_AMAP_SECURITY_CODE = "amap_security_code"
+const val KEY_GOOGLE_MAPS_API_KEY = "google_maps_api_key"
 
 const val KEY_ENABLE_SYSTEM_HOOKS = "enable_system_hooks"
 const val KEY_ENABLE_MOCK_PROVIDER = "enable_mock_provider"
@@ -85,6 +89,10 @@ const val DEFAULT_HIDE_FAKE_LOCATION_TOAST = true
 const val DEFAULT_ENABLE_BROADCAST_CONTROL = false
 const val DEFAULT_LANGUAGE_TAG = ""
 const val DEFAULT_BAIDU_MAP_AK = ""
+const val DEFAULT_MAP_PROVIDER = "baidu"
+const val DEFAULT_AMAP_WEB_KEY = ""
+const val DEFAULT_AMAP_SECURITY_CODE = ""
+const val DEFAULT_GOOGLE_MAPS_API_KEY = ""
 
 const val DEFAULT_ENABLE_SYSTEM_HOOKS = false
 const val DEFAULT_ENABLE_MOCK_PROVIDER = false

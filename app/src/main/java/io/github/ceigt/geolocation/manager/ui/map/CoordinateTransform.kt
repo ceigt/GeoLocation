@@ -41,7 +41,7 @@ object CoordinateTransform {
         )
     }
 
-    private fun gcj02ToWgs84(latitude: Double, longitude: Double): GeoPoint {
+    fun gcj02ToWgs84(latitude: Double, longitude: Double): GeoPoint {
         if (isOutsideChina(latitude, longitude)) return GeoPoint(latitude, longitude)
 
         val transformed = wgs84ToGcj02(latitude, longitude)
@@ -50,6 +50,9 @@ object CoordinateTransform {
             longitude = longitude * 2 - transformed.longitude
         )
     }
+
+    fun gcj02ToWgs84(point: GeoPoint): GeoPoint =
+        gcj02ToWgs84(point.latitude, point.longitude)
 
     fun wgs84ToGcj02(latitude: Double, longitude: Double): GeoPoint {
         if (isOutsideChina(latitude, longitude)) return GeoPoint(latitude, longitude)

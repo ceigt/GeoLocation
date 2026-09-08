@@ -74,14 +74,17 @@ APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本�
 `.github/workflows/release.yml` 仅可手动触发，并向**已经创建的** GitHub Release 上传 APK。先在仓库 Settings → Secrets and variables → Actions 添加：
 
 ```text
-GEOMIMIC_KEYSTORE_BASE64
-GEOMIMIC_KEYSTORE_PASSWORD
-GEOMIMIC_KEY_ALIAS
-GEOMIMIC_KEY_PASSWORD
-GEOMIMIC_BAIDU_WEB_AK
+GEOLOCATION_KEYSTORE_BASE64
+GEOLOCATION_KEYSTORE_PASSWORD
+GEOLOCATION_KEY_ALIAS
+GEOLOCATION_KEY_PASSWORD
+GEOLOCATION_BAIDU_WEB_AK
+GEOLOCATION_AMAP_WEB_KEY
+GEOLOCATION_AMAP_SECURITY_CODE
+GEOLOCATION_GOOGLE_MAPS_API_KEY
 ```
 
-`GEOMIMIC_KEYSTORE_BASE64` 是 JKS 文件的 Base64 内容。PowerShell 示例：
+`GEOLOCATION_KEYSTORE_BASE64` 是 JKS 文件的 Base64 内容。PowerShell 示例：
 
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\geolocation-release.jks")) | Set-Clipboard
