@@ -107,13 +107,15 @@
     <string name="location_mode_application_title">App-level Hook</string>
     <string name="location_mode_application_description">Requires Root and LSPosed. Only affects apps selected in the app list. Suitable for most apps, with extremely low resource and battery usage.</string>
     <string name="location_mode_system_title">System-level Hook</string>
-    <string name="location_mode_system_description">Requires Root and LSPosed. Android system services provide the simulated location to third-party apps; only System Framework, Android System, and Phone Services are required in LSPosed scope. Intended for unusual location paths or stronger mock-location detection, but may cause system location issues on some devices.</string>
+    <string name="location_mode_system_description">Requires Root and LSPosed. Adds Android system, framework, and phone-service hooks on top of app-level hooks. LSPosed scope must include each target app plus System Framework, Android System, and Phone Services. Intended for unusual location paths or stronger mock-location detection, but may cause system location issues on some devices.</string>
     <string name="location_mode_mock_provider_title">Mock Provider</string>
     <string name="location_mode_mock_provider_description">Does not require Root or LSPosed, but you must first select GeoLocation under Developer options → Select mock location app. Android marks the location as mocked, so target apps may detect it. The GeoLocation background service must remain running during simulation, with relatively higher resource and battery usage.</string>
     <string name="module_inactive_banner">GeoLocation is not active in LSPosed. Enable the module and configure its scope first.</string>
     <string name="system_hooks_module_inactive">Module is not active. Enable GeoLocation in your Xposed manager first.</string>
     <string name="system_hooks_scope_required_title">System scope setup required</string>
     <string name="system_hooks_scope_required_message">Open your Xposed manager, then open GeoLocation → Scope and select: %1$s. Return here after saving. For safety, this app does not request or change scope itself.</string>
+    <string name="system_hooks_target_app_required_title">Select a target app first</string>
+    <string name="system_hooks_target_app_required_message">System-level Hook also needs to run inside each target app so it can replace vendor SDK results used by WeChat, WeCom, Alipay, and similar apps. Select at least one app under Affected apps and keep it selected in the LSPosed scope, then enable System-level Hook again.</string>
     <string name="setting_more_info">More information about %1$s</string>
     <string name="setting_disable">Disable %1$s</string>
     <string name="setting_enable">Enable %1$s</string>

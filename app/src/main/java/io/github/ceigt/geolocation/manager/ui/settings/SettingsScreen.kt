@@ -258,12 +258,15 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val cacheScope = rememberCoroutineScope()
     var missingSystemScopePackages by remember { mutableStateOf<List<String>?>(null) }
+    var targetAppScopeRequired by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
+                is SystemHooksEvent.TargetAppScopeRequired ->
+                    targetAppScopeRequired = true
                 is SystemHooksEvent.ScopeSetupRequired ->
                     missingSystemScopePackages = event.missingPackages
             }
@@ -484,6 +487,18 @@ fun SettingsScreen(
                     }
                 )
             }
+            if (targetAppScopeRequired) {
+                AlertDialog(
+                    onDismissRequest = { targetAppScopeRequired = false },
+                    title = { Text(stringResource(R.string.system_hooks_target_app_required_title)) },
+                    text = { Text(stringResource(R.string.system_hooks_target_app_required_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { targetAppScopeRequired = false }) {
+                            Text(stringResource(R.string.action_ok))
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -510,12 +525,15 @@ fun SettingsBottomSheet(
     val snackbarHostState = remember { SnackbarHostState() }
     val cacheScope = rememberCoroutineScope()
     var missingSystemScopePackages by remember { mutableStateOf<List<String>?>(null) }
+    var targetAppScopeRequired by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
+                is SystemHooksEvent.TargetAppScopeRequired ->
+                    targetAppScopeRequired = true
                 is SystemHooksEvent.ScopeSetupRequired ->
                     missingSystemScopePackages = event.missingPackages
             }
@@ -662,6 +680,18 @@ fun SettingsBottomSheet(
                 text = { Text(stringResource(R.string.system_hooks_scope_required_message, missingPackages.joinToString(", "))) },
                 confirmButton = {
                     TextButton(onClick = { missingSystemScopePackages = null }) {
+                        Text(stringResource(R.string.action_ok))
+                    }
+                }
+            )
+        }
+        if (targetAppScopeRequired) {
+            AlertDialog(
+                onDismissRequest = { targetAppScopeRequired = false },
+                title = { Text(stringResource(R.string.system_hooks_target_app_required_title)) },
+                text = { Text(stringResource(R.string.system_hooks_target_app_required_message)) },
+                confirmButton = {
+                    TextButton(onClick = { targetAppScopeRequired = false }) {
                         Text(stringResource(R.string.action_ok))
                     }
                 }

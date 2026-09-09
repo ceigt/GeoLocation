@@ -107,13 +107,15 @@
     <string name="location_mode_application_title">应用级 Hook</string>
     <string name="location_mode_application_description">需要 Root 和 LSPosed，仅对应用列表中选中的应用生效。适合大多数应用，资源占用和耗电量极低。</string>
     <string name="location_mode_system_title">系统级 Hook</string>
-    <string name="location_mode_system_description">需要 Root 和 LSPosed。通过 Android 系统服务向第三方应用统一提供模拟位置；LSPosed 只需勾选 System Framework、Android System 和 Phone Services。适用于定位链路特殊或反模拟检测较强的应用，但在少数设备上可能造成系统定位异常。</string>
+    <string name="location_mode_system_description">需要 Root 和 LSPosed。在应用级 Hook 基础上，额外处理 Android 系统、框架和电话服务。LSPosed 作用域必须同时勾选每个目标应用，以及 System Framework、Android System 和 Phone Services。适用于定位链路特殊或反模拟检测较强的应用，但在少数设备上可能造成系统定位异常。</string>
     <string name="location_mode_mock_provider_title">Mock Provider</string>
     <string name="location_mode_mock_provider_description">不需要 Root 和 LSPosed，但需要先在“开发者选项 → 选择模拟位置信息应用”中选择“GeoLocation”。位置会被系统标记为“模拟位置”，可能被目标应用检测；模拟期间需要保持GeoLocation的后台服务运行，资源占用和耗电量相对较高。</string>
     <string name="module_inactive_banner">GeoLocation尚未在 LSPosed 中激活，请先启用模块并配置作用域。</string>
     <string name="system_hooks_module_inactive">模块未激活。请先在 Xposed 管理器中启用GeoLocation并勾选作用域。</string>
     <string name="system_hooks_scope_required_title">需要配置系统作用域</string>
     <string name="system_hooks_scope_required_message">请打开 Xposed 管理器，进入“GeoLocation → 作用域”，勾选：%1$s。保存后返回此处再次开启。为保证安全，应用不会自行申请或修改作用域。</string>
+    <string name="system_hooks_target_app_required_title">请先选择目标应用</string>
+    <string name="system_hooks_target_app_required_message">系统级 Hook 也必须进入每个目标应用进程，才能替换微信、企业微信、支付宝等应用使用的厂商定位 SDK 结果。请先在“作用应用”中勾选至少一个目标应用，并在 LSPosed 作用域中保留该应用，然后再次开启系统级 Hook。</string>
     <string name="setting_more_info">关于 %1$s 的更多信息</string>
     <string name="setting_disable">关闭 %1$s</string>
     <string name="setting_enable">开启 %1$s</string>

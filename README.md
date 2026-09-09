@@ -28,7 +28,7 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 
 Mock Provider 模式需要在 Android 开发者选项中把 GeoLocation 设为模拟位置信息应用。系统级 Hook 会影响更广的定位链路，只应在受控测试设备上启用。升级时必须使用同一签名；首次换用自己的签名需要先卸载旧的 GeoLocation 构建。
 
-**1.2.5 为待真机确认的预发布版本。** 1.2.4 的应用级 Hook 已由用户确认微信和企业微信均显示模拟位置。1.2.5 修复系统级 Hook 的第三方调用识别；启用该模式后，LSPosed 只需包含 System Framework、Android System 和 Phone Services，系统服务会向第三方应用提供模拟位置。见 [定位排查说明](docs/LOCATION_DIAGNOSTICS.md)。
+**1.2.6 为待真机确认的预发布版本。** 1.2.4 的应用级 Hook 已由用户确认微信和企业微信均显示模拟位置。1.2.5 的真机日志确认系统服务已替换微信、支付宝、京东等应用的 Android 定位结果，但只有高德和美团采用该结果；其他应用会由进程内的厂商 SDK 再次生成位置。因此系统级 Hook 必须同时勾选目标应用和 System Framework、Android System、Phone Services。1.2.6 会阻止缺少目标应用的无效配置。见 [定位排查说明](docs/LOCATION_DIAGNOSTICS.md)。
 
 ## 构建
 

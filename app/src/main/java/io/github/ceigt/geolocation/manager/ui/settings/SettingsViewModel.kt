@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 /** One-shot messages surfaced to the settings UI. */
 sealed interface SystemHooksEvent {
     data object ModuleNotActive : SystemHooksEvent
+    data object TargetAppScopeRequired : SystemHooksEvent
     data class ScopeSetupRequired(val missingPackages: List<String>) : SystemHooksEvent
 }
 
@@ -418,15 +419,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
 
         viewModelScope.launch {
-            val missingPackages = runCatching {
+            val currentScope = runCatching {
                 withContext(Dispatchers.IO) {
-                    val currentScope = service.scope.toSet()
-                    SYSTEM_HOOK_PACKAGES.filterNot(currentScope::contains)
+                    service.scope.toSet()
                 }
             }.getOrElse {
                 _systemHooksEvents.tryEmit(SystemHooksEvent.ModuleNotActive)
                 return@launch
             }
+
+            if (applicationHookTargets(currentScope).isEmpty()) {
+                _systemHooksEvents.tryEmit(SystemHooksEvent.TargetAppScopeRequired)
+                return@launch
+            }
+
+            val missingPackages = SYSTEM_HOOK_PACKAGES.filterNot(currentScope::contains)
 
             if (missingPackages.isNotEmpty()) {
                 _systemHooksEvents.tryEmit(SystemHooksEvent.ScopeSetupRequired(missingPackages))

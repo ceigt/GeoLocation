@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ceigt.geolocation.R
 import io.github.ceigt.geolocation.data.CoordinateSystem
 import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
+import io.github.ceigt.geolocation.data.applicationHookTargets
 import io.github.ceigt.geolocation.data.repository.PreferencesRepository
 import io.github.ceigt.geolocation.manager.App
 import io.github.libxposed.service.XposedService
@@ -307,7 +308,11 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
 
-        preferencesRepository.saveTargetApps(scope)
+        val targetApps = applicationHookTargets(scope)
+        preferencesRepository.saveTargetApps(targetApps)
+        if (targetApps.isEmpty()) {
+            preferencesRepository.saveEnableSystemHooks(false)
+        }
     }
 
     private fun setPending(packageName: String, pending: Boolean) {

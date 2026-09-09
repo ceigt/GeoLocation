@@ -1,14 +1,30 @@
-# 1.2.5 系统级 Hook 目标识别
+# 1.2.6 系统级 Hook 作用域组合
 
 1.2.4 已由用户确认：应用级 Hook 下微信和 Google Play 企业微信 5.0.9 均显示模拟位置。系统级 Hook 下，支付宝、京东、高德、美团、微信和企业微信仍显示真实位置。
 
-根因是系统服务回调仍用远程配置中的 LSPosed scope 做目标白名单。系统级模式的 scope 只有 `system`、`android` 和 `com.android.phone` 时，第三方调用包永远无法匹配，系统服务因此原样放行位置。
+1.2.5 修复第三方调用包识别后，新一轮真机日志确认系统服务已经替换以下入口：
 
-1.2.5 从 `LocationManagerService` 调用参数和 `LocationProviderManager` 注册对象的 `CallerIdentity` 识别实际接收包。明确配置的第三方包优先用于每应用坐标系；其他第三方包也会在系统模式下被替换，默认使用 WGS-84。`android`、`com.android.*` 和 Phone Services 的纯系统内部投递保持原样。
+- 微信：`LocationRegistration.acceptLocationChange`
+- 高德：`getLastLocation` 和持续定位回调
+- 支付宝：`getLastLocation`
+- 美团：`getLastLocation` 和持续定位回调
+- 京东：`getLastLocation` 和持续定位回调
 
-Android 15 的持续更新经过 `LocationRegistration.acceptLocationChange`，一次性请求使用同级的 `GetCurrentLocationListenerRegistration.acceptLocationChange`；两个入口均已覆盖。日志首次替换时记录通道和接收包，不记录坐标。
+真机结果只有高德和美团显示模拟位置。日志中只有 `system` 与 `com.android.phone` 进程加载了 GeoLocation，没有微信、企业微信、支付宝或京东应用进程。这证明这些失败应用没有直接采用系统服务提供的 Android `Location`，而是在应用进程内由腾讯等厂商 SDK 生成或覆盖最终位置。系统服务无法修改只存在于目标应用进程中的 `TencentLocation` 等对象。
 
-安装 1.2.5 debug 后重启手机，LSPosed 保留 System Framework、Android System 和 Phone Services，开启系统级 Hook、选点并开始模拟。分别检查一个普通应用、微信/企业微信以及停止模拟后的恢复状态。若某个应用仍显示真实位置，导出本次 LSPosed 模块日志即可。
+因此 1.2.6 将系统级模式恢复为组合模式：目标应用进程 Hook 加系统服务 Hook。LSPosed 作用域必须同时包含每个待测试应用，以及 System Framework、Android System、Phone Services。只有三个系统组件不构成有效配置。应用会在缺少目标应用时拒绝开启系统级模式，并在目标列表变空时自动关闭该模式。
+
+## 1.2.6 手机验证
+
+1. 覆盖安装 1.2.6 debug，打开 GeoLocation 一次。
+2. 在“作用应用”中勾选每个待测试应用，例如微信、企业微信、支付宝、京东、高德和美团；企业微信按已确认结果设置为 GCJ-02。
+3. 在 LSPosed 的 GeoLocation 作用域中确认上述目标应用仍处于勾选状态，同时勾选 System Framework、Android System 和 Phone Services。
+4. 回到 GeoLocation 开启“系统级 Hook”，选点并开始模拟，然后重启手机。逐个冷启动目标应用测试。
+5. 新日志应同时出现目标应用进程的 `onModuleLoaded` / SDK 回调替换记录，以及 `system` 进程的系统定位替换记录。若日志仍只有 `system` 和 `com.android.phone`，说明目标应用未进入作用域。
+
+构建测试只能验证模式状态、作用域约束和 Hook 代码可编译。1.2.6 的组合模式仍需上述真机验证。
+
+以下保留 1.2.5 的系统服务实现记录：1.2.5 从 `LocationManagerService` 调用参数和 `LocationProviderManager` 注册对象的 `CallerIdentity` 识别实际接收包。Android 15 持续更新经过 `LocationRegistration.acceptLocationChange`，一次性请求使用同级的 `GetCurrentLocationListenerRegistration.acceptLocationChange`；两个入口均已覆盖。日志首次替换时记录通道和接收包，不记录坐标。
 
 以下保留 1.2.4 企业微信适配记录。
 
