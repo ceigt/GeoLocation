@@ -5,6 +5,7 @@ import android.util.Log
 import android.widget.Toast
 import io.github.ceigt.geolocation.data.REMOTE_PREFS_GROUP
 import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
+import io.github.ceigt.geolocation.xposed.hooks.isolateHook
 import io.github.ceigt.geolocation.xposed.hooks.LocationApiHooks
 import io.github.ceigt.geolocation.xposed.hooks.SystemServicesHooks
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
@@ -63,8 +64,8 @@ class ModuleEntry : XposedModule() {
         log(Log.INFO, TAG, "onSystemServerStarting")
 
         // system_server is a hooked process only when the user enabled system-level hooks (which adds
-        // "system"/"android" to the module scope). Per-intercept isPlaying + target_apps gating keeps these
-        // inert until the user is actively spoofing a selected target.
+        // "system"/"android" to the module scope). Each intercept checks the current playing state
+        // and system-mode setting before replacing supported system location results.
         PreferencesUtil.init(getRemotePreferences(REMOTE_PREFS_GROUP))
         LocationUtil.targetPackageName = "system"
         systemServicesHooks = SystemServicesHooks(this, param.classLoader).also { it.initHooks() }
@@ -74,30 +75,29 @@ class ModuleEntry : XposedModule() {
         // Install location hooks as soon as the package class loader is ready. Waiting until after
         // Application.onCreate lets apps such as WeChat register vendor location listeners before
         // GeoLocation can wrap them, so those callbacks continue exposing the real location.
-        locationApiHooks = LocationApiHooks(this, param.classLoader).also { it.initHooks() }
-
-        val method = runCatching {
-            Class.forName("android.app.Instrumentation", false, param.classLoader)
-                .getDeclaredMethod("callApplicationOnCreate", Application::class.java)
-        }.getOrElse {
-            log(Log.WARN, TAG, "Application-ready retry unavailable: ${it.javaClass.simpleName}")
-            return
+        isolateHook({ log(Log.WARN, TAG, "Application adapters unavailable: ${it.javaClass.simpleName}") }) {
+            locationApiHooks = LocationApiHooks(this, param.classLoader).also { it.initHooks() }
         }
 
-        hook(method).intercept { chain ->
-            val result = chain.proceed()
+        isolateHook({ log(Log.WARN, TAG, "Application-ready retry unavailable: ${it.javaClass.simpleName}") }) {
+            val method = Class.forName("android.app.Instrumentation", false, param.classLoader)
+                .getDeclaredMethod("callApplicationOnCreate", Application::class.java)
 
-            try {
-                val context = (chain.getArg(0) as Application).applicationContext
-                locationApiHooks?.onApplicationReady(context.classLoader)
-                log(Log.INFO, TAG, "Target App's context has been acquired (${param.packageName}).")
-                if (PreferencesUtil.getIsPlaying() && PreferencesUtil.getHideFakeLocationToast() != true) {
-                    Toast.makeText(context, "Fake Location Is Active!", Toast.LENGTH_SHORT).show()
+            hook(method).intercept { chain ->
+                val result = chain.proceed()
+
+                try {
+                    val context = (chain.getArg(0) as Application).applicationContext
+                    locationApiHooks?.onApplicationReady(context.classLoader)
+                    log(Log.INFO, TAG, "Target App's context has been acquired (${param.packageName}).")
+                    if (PreferencesUtil.getIsPlaying() && PreferencesUtil.getHideFakeLocationToast() != true) {
+                        Toast.makeText(context, "Fake Location Is Active!", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    log(Log.ERROR, TAG, "Toast/context failed - ${e.message}")
                 }
-            } catch (e: Exception) {
-                log(Log.ERROR, TAG, "Toast/context failed - ${e.message}")
+                result
             }
-            result
         }
     }
 }

@@ -56,10 +56,10 @@ class SystemServicesHooks(
     }
 
     fun initHooks() {
-        hookLastLocation(classLoader)
-        hookCurrentLocation(classLoader)
-        hookLocationDispatch(classLoader)
-        hookMiuiLocationServices(classLoader)
+        initialize("Last location") { hookLastLocation(classLoader) }
+        initialize("Current location") { hookCurrentLocation(classLoader) }
+        initialize("Location dispatch") { hookLocationDispatch(classLoader) }
+        initialize("MIUI adapter") { hookMiuiLocationServices(classLoader) }
         if (ENABLE_RISKY_SYSTEM_IDENTITY_HOOKS) {
             hookWifiServices(classLoader)
             hookGnssRegistration(classLoader)
@@ -67,8 +67,12 @@ class SystemServicesHooks(
         } else {
             module.log(Log.INFO, tag, "Skipping GNSS/Wi-Fi/geofence hooks in stability mode.")
         }
-        module.log(Log.INFO, tag, "Instantiated hooks successfully")
+        module.log(Log.INFO, tag, "System hook setup finished; delivery requires runtime verification")
     }
+
+    private inline fun initialize(name: String, install: () -> Unit) = isolateHook(
+        { module.log(Log.WARN, tag, "$name unavailable: ${it.javaClass.simpleName}") }, install
+    )
 
     private inline fun logSystemLocationEvent(message: () -> String) {
         if (LOG_SYSTEM_LOCATION_EVENTS) {

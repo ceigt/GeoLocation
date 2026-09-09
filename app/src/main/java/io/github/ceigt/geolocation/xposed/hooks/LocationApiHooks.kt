@@ -35,12 +35,6 @@ class LocationApiHooks(
     }
 
     private inline fun initialize(name: String, action: () -> Unit) {
-        try {
-            action()
-        } catch (error: Exception) {
-            module.log(Log.WARN, tag, "$name unavailable: ${error.javaClass.simpleName}")
-        } catch (error: LinkageError) {
-            module.log(Log.WARN, tag, "$name incompatible: ${error.javaClass.simpleName}")
-        }
+        isolateHook({ module.log(Log.WARN, tag, "$name unavailable: ${it.javaClass.simpleName}") }, action)
     }
 }
