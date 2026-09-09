@@ -18,6 +18,23 @@ import java.lang.reflect.Method
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
+internal fun selectSystemTargetPackage(
+    packages: Set<String>,
+    configuredTargets: Set<String>
+): String? {
+    fun isThirdParty(packageName: String): Boolean =
+        packageName != "android" &&
+            packageName != "system" &&
+            packageName != "com.android.phone" &&
+            !packageName.startsWith("android.") &&
+            !packageName.startsWith("com.android.")
+
+    // Explicit third-party entries win so their coordinate selection is honored. System-only
+    // scope entries are bookkeeping and must never mask the actual receiving application.
+    return packages.firstOrNull { it in configuredTargets && isThirdParty(it) }
+        ?: packages.firstOrNull(::isThirdParty)
+}
+
 class SystemServicesHooks(
     private val module: XposedInterface,
     private val classLoader: ClassLoader
@@ -32,6 +49,11 @@ class SystemServicesHooks(
     }
 
     private val hookedWifiServiceClasses = Collections.newSetFromMap(ConcurrentHashMap<Class<*>, Boolean>())
+    private val reportedSystemEvents = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
+    private fun reportOnce(event: String) {
+        if (reportedSystemEvents.add(event)) module.log(Log.INFO, tag, event)
+    }
 
     fun initHooks() {
         hookLastLocation(classLoader)
@@ -63,10 +85,11 @@ class SystemServicesHooks(
 
         hookAll(serviceClass, "getLastLocation") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofArgs(chain.args)) {
+            val targetPackage = targetPackageFrom(chain.args)
+            if (targetPackage != null) {
                 val original = result as? Location
-                logSystemLocationEvent { "Replaced getLastLocation result." }
-                LocationUtil.createFakeLocation(original)
+                reportOnce("Replaced getLastLocation for $targetPackage")
+                LocationUtil.createFakeLocation(original, targetPackage = targetPackage)
             } else {
                 result
             }
@@ -81,7 +104,7 @@ class SystemServicesHooks(
         ) ?: return
 
         hookAll(serviceClass, "getCurrentLocation") { chain ->
-            if (shouldSpoofArgs(chain.args)) {
+            if (targetPackageFrom(chain.args) != null) {
                 // getCurrentLocation is asynchronous. Returning without calling the real method
                 // prevents Android from ever invoking the app's callback, which vendor SDKs such
                 // as Tencent Location surface as "unable to obtain location". Let the request be
@@ -110,6 +133,16 @@ class SystemServicesHooks(
         hookAll(registrationClass, "acceptLocationChange") { chain ->
             interceptTargetedLocationCallback(chain, "LocationRegistration.acceptLocationChange")
         }
+
+        // One-shot requests use a sibling registration on current Android releases.
+        findClass(
+            classLoader,
+            "com.android.server.location.provider.LocationProviderManager\$GetCurrentLocationListenerRegistration"
+        )?.let { currentRegistration ->
+            hookAll(currentRegistration, "acceptLocationChange") { chain ->
+                interceptTargetedLocationCallback(chain, "GetCurrentLocation.acceptLocationChange")
+            }
+        }
     }
 
     private fun hookMiuiLocationServices(classLoader: ClassLoader) {
@@ -127,9 +160,10 @@ class SystemServicesHooks(
 
         hookAll(miuiClass, "getBlurryLocation") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofArgs(chain.args)) {
+            val targetPackage = targetPackageFrom(chain.args)
+            if (targetPackage != null) {
                 logSystemLocationEvent { "Replaced MIUI blurry location result." }
-                replaceLocationLikeResult(result, chain.executable as? Method)
+                replaceLocationLikeResult(result, chain.executable as? Method, targetPackage)
             } else {
                 result
             }
@@ -185,7 +219,8 @@ class SystemServicesHooks(
             addAll(collectPackageNames(chain.thisObject))
             chain.args.forEach { addAll(collectPackageNames(it)) }
         }
-        if (receivingPackages.none(config.targetApps::contains)) return chain.proceed()
+        val targetPackage = selectSystemTargetPackage(receivingPackages, config.targetApps)
+            ?: return chain.proceed()
 
         val args = chain.args
         var replaced = false
@@ -194,7 +229,7 @@ class SystemServicesHooks(
         args.forEachIndexed { index, arg ->
             when (arg) {
                 is Location -> {
-                    newArgs[index] = LocationUtil.createFakeLocation(arg)
+                    newArgs[index] = LocationUtil.createFakeLocation(arg, targetPackage = targetPackage)
                     replaced = true
                 }
 
@@ -203,7 +238,7 @@ class SystemServicesHooks(
                     val replacement = arg.map { item ->
                         if (item is Location) {
                             listReplaced = true
-                            LocationUtil.createFakeLocation(item)
+                            LocationUtil.createFakeLocation(item, targetPackage = targetPackage)
                         } else {
                             item
                         }
@@ -215,7 +250,7 @@ class SystemServicesHooks(
                 }
 
                 else -> {
-                    if (replaceLocationFields(arg)) {
+                    if (replaceLocationFields(arg, targetPackage)) {
                         replaced = true
                     }
                 }
@@ -224,7 +259,7 @@ class SystemServicesHooks(
 
         if (!replaced) return chain.proceed()
 
-        logSystemLocationEvent { "Replaced $source location payload." }
+        reportOnce("Replaced $source payload for $targetPackage")
         return chain.proceed(newArgs)
     }
 
@@ -397,12 +432,14 @@ class SystemServicesHooks(
     // Name-based attribution for pull/query style calls: only spoof while playing and when a target
     // package can be recovered from the call arguments (caller identity, work source, request, etc.).
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
+        return targetPackageFrom(args) != null
+    }
+
+    private fun targetPackageFrom(args: List<Any?>?): String? {
         val config = PreferencesUtil.snapshot()
-        if (!config.enableSystemHooks || !config.isPlaying) return false
-        return args?.asSequence()
-            ?.flatMap { collectPackageNames(it).asSequence() }
-            ?.distinct()
-            ?.any(config.targetApps::contains) == true
+        if (!config.enableSystemHooks || !config.isPlaying) return null
+        val packages = args.orEmpty().flatMap(::collectPackageNames).toSet()
+        return selectSystemTargetPackage(packages, config.targetApps)
     }
 
     private fun collectPackageNames(value: Any?): Set<String> {
@@ -490,6 +527,7 @@ class SystemServicesHooks(
 
         listOf(
             "getAttributionSource",
+            "getIdentity",
             "getNext",
             "getWorkSource",
             "getLocationRequest",
@@ -543,7 +581,7 @@ class SystemServicesHooks(
         return value != null && "." in value && !value.startsWith("android.location.")
     }
 
-    private fun replaceLocationFields(value: Any?): Boolean {
+    private fun replaceLocationFields(value: Any?, targetPackage: String? = null): Boolean {
         if (value == null) return false
         var replaced = false
 
@@ -552,7 +590,7 @@ class SystemServicesHooks(
             is Iterable<*> -> {
                 originalLocations.forEach { item ->
                     if (item is Location) {
-                        item.set(LocationUtil.createFakeLocation(item))
+                        item.set(LocationUtil.createFakeLocation(item, targetPackage = targetPackage))
                         replaced = true
                     }
                 }
@@ -561,7 +599,7 @@ class SystemServicesHooks(
             is Array<*> -> {
                 originalLocations.forEach { item ->
                     if (item is Location) {
-                        item.set(LocationUtil.createFakeLocation(item))
+                        item.set(LocationUtil.createFakeLocation(item, targetPackage = targetPackage))
                         replaced = true
                     }
                 }
@@ -571,26 +609,26 @@ class SystemServicesHooks(
         val locationField = findField(value.javaClass, "mLocation")
         val originalLocation = locationField?.get(value) as? Location
         if (originalLocation != null) {
-            originalLocation.set(LocationUtil.createFakeLocation(originalLocation))
+            originalLocation.set(LocationUtil.createFakeLocation(originalLocation, targetPackage = targetPackage))
             replaced = true
         }
 
         return replaced
     }
 
-    private fun replaceLocationLikeResult(result: Any?, method: Method?): Any? {
+    private fun replaceLocationLikeResult(result: Any?, method: Method?, targetPackage: String? = null): Any? {
         if (result is Location) {
-            return LocationUtil.createFakeLocation(result)
+            return LocationUtil.createFakeLocation(result, targetPackage = targetPackage)
         }
 
         if (result != null) {
-            if (replaceLocationFields(result)) {
+            if (replaceLocationFields(result, targetPackage)) {
                 return result
             }
 
             if (result is List<*>) {
                 return result.map { item ->
-                    if (item is Location) LocationUtil.createFakeLocation(item) else item
+                    if (item is Location) LocationUtil.createFakeLocation(item, targetPackage = targetPackage) else item
                 }
             }
 
@@ -600,7 +638,7 @@ class SystemServicesHooks(
                 val size = sizeMethod?.invoke(result) as? Int ?: return@runCatching
                 if (size > 0) {
                     val originalLocation = getMethod?.invoke(result, 0) as? Location ?: return@runCatching
-                    val fakeLocation = LocationUtil.createFakeLocation(originalLocation)
+                    val fakeLocation = LocationUtil.createFakeLocation(originalLocation, targetPackage = targetPackage)
                     originalLocation.latitude = fakeLocation.latitude
                     originalLocation.longitude = fakeLocation.longitude
                     originalLocation.altitude = fakeLocation.altitude
@@ -615,7 +653,7 @@ class SystemServicesHooks(
         }
 
         return if (method?.returnType?.let { Location::class.java.isAssignableFrom(it) } == true) {
-            LocationUtil.createFakeLocation(provider = FUSED_PROVIDER)
+            LocationUtil.createFakeLocation(provider = FUSED_PROVIDER, targetPackage = targetPackage)
         } else {
             null
         }

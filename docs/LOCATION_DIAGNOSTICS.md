@@ -1,3 +1,17 @@
+# 1.2.5 系统级 Hook 目标识别
+
+1.2.4 已由用户确认：应用级 Hook 下微信和 Google Play 企业微信 5.0.9 均显示模拟位置。系统级 Hook 下，支付宝、京东、高德、美团、微信和企业微信仍显示真实位置。
+
+根因是系统服务回调仍用远程配置中的 LSPosed scope 做目标白名单。系统级模式的 scope 只有 `system`、`android` 和 `com.android.phone` 时，第三方调用包永远无法匹配，系统服务因此原样放行位置。
+
+1.2.5 从 `LocationManagerService` 调用参数和 `LocationProviderManager` 注册对象的 `CallerIdentity` 识别实际接收包。明确配置的第三方包优先用于每应用坐标系；其他第三方包也会在系统模式下被替换，默认使用 WGS-84。`android`、`com.android.*` 和 Phone Services 的纯系统内部投递保持原样。
+
+Android 15 的持续更新经过 `LocationRegistration.acceptLocationChange`，一次性请求使用同级的 `GetCurrentLocationListenerRegistration.acceptLocationChange`；两个入口均已覆盖。日志首次替换时记录通道和接收包，不记录坐标。
+
+安装 1.2.5 debug 后重启手机，LSPosed 保留 System Framework、Android System 和 Phone Services，开启系统级 Hook、选点并开始模拟。分别检查一个普通应用、微信/企业微信以及停止模拟后的恢复状态。若某个应用仍显示真实位置，导出本次 LSPosed 模块日志即可。
+
+以下保留 1.2.4 企业微信适配记录。
+
 # 1.2.4 企业微信 sapp SDK 适配
 
 实际检查用户导出的 Google Play 企业微信 5.0.9（versionCode 75141）。页面接收 com.tencent.map.geolocation.sapp.TencentLocationListener，并读取 sapp.TencentLocation 经纬度绘制地图。此前只查找标准命名空间，遗漏 sapp。

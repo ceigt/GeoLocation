@@ -42,6 +42,7 @@ object LocationUtil {
     private val random: Random = Random()
     @Volatile private var canAttemptMockProviderHide: Boolean = true
     @Volatile private var lastAppliedConfig: PreferencesUtil.PreferencesSnapshot? = null
+    @Volatile private var lastAppliedTargetPackage: String? = null
     @Volatile private var lastAppliedAtNanos: Long = Long.MIN_VALUE
     private var randomizedAtNanos: Long = Long.MIN_VALUE
     private var randomizedBaseLatitude: Double = Double.NaN
@@ -61,8 +62,12 @@ object LocationUtil {
     @Volatile var targetPackageName: String? = null
 
     @Synchronized
-    fun createFakeLocation(originalLocation: Location? = null, provider: String = LocationManager.GPS_PROVIDER): Location {
-        updateLocation()
+    fun createFakeLocation(
+        originalLocation: Location? = null,
+        provider: String = LocationManager.GPS_PROVIDER,
+        targetPackage: String? = targetPackageName
+    ): Location {
+        updateLocation(targetPackage = targetPackage)
 
         val nowMillis = System.currentTimeMillis()
         val nowElapsedNanos = SystemClock.elapsedRealtimeNanos()
@@ -141,23 +146,26 @@ object LocationUtil {
         }
     }
 
-    fun updateLocation(config: PreferencesUtil.PreferencesSnapshot = PreferencesUtil.snapshot()) {
+    fun updateLocation(
+        config: PreferencesUtil.PreferencesSnapshot = PreferencesUtil.snapshot(),
+        targetPackage: String? = targetPackageName
+    ) {
         val now = SystemClock.elapsedRealtimeNanos()
         val randomizationStillFresh = !config.useRandomize ||
             now - lastAppliedAtNanos < RANDOMIZATION_INTERVAL_NANOS
-        if (config === lastAppliedConfig && randomizationStillFresh) return
+        if (config === lastAppliedConfig && targetPackage == lastAppliedTargetPackage && randomizationStillFresh) return
 
         synchronized(this) {
             val recheckedNow = SystemClock.elapsedRealtimeNanos()
             val recheckedRandomizationStillFresh = !config.useRandomize ||
                 recheckedNow - lastAppliedAtNanos < RANDOMIZATION_INTERVAL_NANOS
-            if (config === lastAppliedConfig && recheckedRandomizationStillFresh) return
+            if (config === lastAppliedConfig && targetPackage == lastAppliedTargetPackage && recheckedRandomizationStillFresh) return
 
             try {
             config.lastClickedLocation?.let {
                 val storedPoint = GeoPoint(it.latitude, it.longitude)
                 val outputPoint = when (
-                    config.appCoordinateSystems[targetPackageName] ?: CoordinateSystem.WGS84
+                    config.appCoordinateSystems[targetPackage] ?: CoordinateSystem.WGS84
                 ) {
                     CoordinateSystem.WGS84 -> storedPoint
                     CoordinateSystem.GCJ02 -> CoordinateTransform.wgs84ToGcj02(
@@ -238,6 +246,7 @@ object LocationUtil {
                 }
             }
                 lastAppliedConfig = config
+                lastAppliedTargetPackage = targetPackage
                 lastAppliedAtNanos = recheckedNow
             } catch (e: Exception) {
                 log("Error - ${e.message}", priority = Log.ERROR)

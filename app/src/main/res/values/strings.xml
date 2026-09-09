@@ -107,7 +107,7 @@
     <string name="location_mode_application_title">App-level Hook</string>
     <string name="location_mode_application_description">Requires Root and LSPosed. Only affects apps selected in the app list. Suitable for most apps, with extremely low resource and battery usage.</string>
     <string name="location_mode_system_title">System-level Hook</string>
-    <string name="location_mode_system_description">Requires Root and LSPosed. In addition to app-level hooks, it handles Android system, framework, and phone services. It is intended for apps with unusual location paths or stronger mock-location detection. Compatibility is better, but system location issues may occur on a small number of devices. Resource and battery usage remain extremely low.</string>
+    <string name="location_mode_system_description">Requires Root and LSPosed. Android system services provide the simulated location to third-party apps; only System Framework, Android System, and Phone Services are required in LSPosed scope. Intended for unusual location paths or stronger mock-location detection, but may cause system location issues on some devices.</string>
     <string name="location_mode_mock_provider_title">Mock Provider</string>
     <string name="location_mode_mock_provider_description">Does not require Root or LSPosed, but you must first select GeoLocation under Developer options → Select mock location app. Android marks the location as mocked, so target apps may detect it. The GeoLocation background service must remain running during simulation, with relatively higher resource and battery usage.</string>
     <string name="module_inactive_banner">GeoLocation is not active in LSPosed. Enable the module and configure its scope first.</string>
