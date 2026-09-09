@@ -56,6 +56,7 @@ class SystemServicesHooks(
     }
 
     fun initHooks() {
+        initialize("System active callbacks") { SystemActiveLocationHooks(module, classLoader).initHooks() }
         initialize("Last location") { hookLastLocation(classLoader) }
         initialize("Current location") { hookCurrentLocation(classLoader) }
         initialize("Location dispatch") { hookLocationDispatch(classLoader) }
