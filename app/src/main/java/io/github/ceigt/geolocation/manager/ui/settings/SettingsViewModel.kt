@@ -428,11 +428,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            if (applicationHookTargets(currentScope).isEmpty()) {
-                _systemHooksEvents.tryEmit(SystemHooksEvent.TargetAppScopeRequired)
-                return@launch
-            }
-
             val missingPackages = SYSTEM_HOOK_PACKAGES.filterNot(currentScope::contains)
 
             if (missingPackages.isNotEmpty()) {

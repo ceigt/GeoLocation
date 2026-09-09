@@ -21,14 +21,16 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 
 ## 安装
 
-1. 安装 Release 附件中的 `GeoLocation-1.2.4-debug.apk`，Android 11 或更高版本。
+1. 安装 [2.0 正式 Release](https://github.com/ceigt/GeoLocation/releases/tag/20000-2.0.0) 附件中的正式签名 APK，Android 11 或更高版本。首次从 1.2.x Debug 切换，先保存收藏、坐标和地图凭据，再卸载旧版安装；签名不同，不能直接覆盖。
 2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
 3. 打开 GeoLocation，在“受影响的应用”中选择测试目标。切换作用域后重新启动目标应用。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。
 
 Mock Provider 模式需要在 Android 开发者选项中把 GeoLocation 设为模拟位置信息应用。系统级 Hook 会影响更广的定位链路，只应在受控测试设备上启用。升级时必须使用同一签名；首次换用自己的签名需要先卸载旧的 GeoLocation 构建。
 
-**1.2.6 为待真机确认的预发布版本。** 1.2.4 的应用级 Hook 已由用户确认微信和企业微信均显示模拟位置。1.2.5 的真机日志确认系统服务已替换微信、支付宝、京东等应用的 Android 定位结果，但只有高德和美团采用该结果；其他应用会由进程内的厂商 SDK 再次生成位置。因此系统级 Hook 必须同时勾选目标应用和 System Framework、Android System、Phone Services。1.2.6 会阻止缺少目标应用的无效配置。见 [定位排查说明](docs/LOCATION_DIAGNOSTICS.md)。
+**2.0.0 恢复仅选择 System Framework、Android System、Phone Services 的全局系统接口模式**，GeoLocation 内无需额外选择目标应用。该模式覆盖受支持的 Android 定位接口，不能保证私有 SDK、缓存或网络定位均被替换；有需要时可额外选择应用进行进程内适配。此前日志不足以确定其他应用显示真实位置的具体原因。
+
+本轮参考原版 2.0.2 的部分模块初始化与定位实现，独立修复配置同步、共享定位对象隔离和参数有效性，并启用独立正式签名。1.2.4 应用级模式曾由用户确认微信和企业微信可用；2.0 尚未完成 LSPosed 真机复测，不承诺全应用覆盖或无法检测。详见 [2.0 对比、改动与验证边界](docs/V2_REVIEW.md)。
 
 ## 构建
 
@@ -43,7 +45,7 @@ Mock Provider 模式需要在 Android 开发者选项中把 GeoLocation 设为�
 
 地图凭据可在应用设置中输入，也可在本地 `local.properties` 中配置 `BAIDU_WEB_AK`、`AMAP_WEB_KEY`、`AMAP_SECURITY_CODE` 和 `GOOGLE_MAPS_API_KEY`。这些文件已被 Git 忽略。
 
-正式发布前，把 `keystore.properties.example` 复制为 `keystore.properties`，使用你自己保管的 keystore 填写配置。没有该文件时，release 会使用开发签名，只适合本地测试。详见 [发布与签名说明](docs/PUBLISHING.md)。
+正式发布前，把 `keystore.properties.example` 复制为 `keystore.properties`，使用你自己保管的 keystore 填写配置。没有该文件时，release 生成未签名 APK，不能作为正式安装包发布。请离线备份密钥和密码配置，后续发布保持同一签名。详见 [发布与签名说明](docs/PUBLISHING.md)。
 
 ## 安全边界
 

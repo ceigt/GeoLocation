@@ -23,6 +23,7 @@ class ModuleEntry : XposedModule() {
 
     private var locationApiHooks: LocationApiHooks? = null
     private var systemServicesHooks: SystemServicesHooks? = null
+    private var isSystemServer = false
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         log(Log.INFO, TAG, "onModuleLoaded: ${param.processName}")
@@ -32,16 +33,13 @@ class ModuleEntry : XposedModule() {
 
     override fun onPackageLoaded(param: PackageLoadedParam) {
         log(Log.INFO, TAG, "onPackageLoaded: ${param.packageName}")
-        log(Log.INFO, TAG, "\tdefault classloder: ${param.defaultClassLoader}")
     }
 
     override fun onPackageReady(param: PackageReadyParam) {
         log(Log.INFO, TAG, "onPackageReady: ${param.packageName}")
-        log(Log.INFO, TAG, "\tapp classloder: ${param.classLoader}")
-        log(Log.INFO, TAG, "\tmodule apk path: ${moduleApplicationInfo.sourceDir}")
 
         // Run per-package setup only once.
-        if (!param.isFirstPackage) return
+        if (!param.isFirstPackage || isSystemServer) return
 
         PreferencesUtil.init(getRemotePreferences(REMOTE_PREFS_GROUP))
         LocationUtil.targetPackageName = param.packageName
@@ -61,7 +59,8 @@ class ModuleEntry : XposedModule() {
     }
 
     override fun onSystemServerStarting(param: SystemServerStartingParam) {
-        log(Log.INFO, TAG, "onSystemServerStarting:\n\t${param.classLoader}")
+        isSystemServer = true
+        log(Log.INFO, TAG, "onSystemServerStarting")
 
         // system_server is a hooked process only when the user enabled system-level hooks (which adds
         // "system"/"android" to the module scope). Per-intercept isPlaying + target_apps gating keeps these
@@ -77,8 +76,13 @@ class ModuleEntry : XposedModule() {
         // GeoLocation can wrap them, so those callbacks continue exposing the real location.
         locationApiHooks = LocationApiHooks(this, param.classLoader).also { it.initHooks() }
 
-        val clazz = Class.forName("android.app.Instrumentation", false, param.classLoader)
-        val method = clazz.getDeclaredMethod("callApplicationOnCreate", Application::class.java)
+        val method = runCatching {
+            Class.forName("android.app.Instrumentation", false, param.classLoader)
+                .getDeclaredMethod("callApplicationOnCreate", Application::class.java)
+        }.getOrElse {
+            log(Log.WARN, TAG, "Application-ready retry unavailable: ${it.javaClass.simpleName}")
+            return
+        }
 
         hook(method).intercept { chain ->
             val result = chain.proceed()

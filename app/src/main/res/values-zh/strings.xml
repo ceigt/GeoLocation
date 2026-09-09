@@ -107,7 +107,7 @@
     <string name="location_mode_application_title">应用级 Hook</string>
     <string name="location_mode_application_description">需要 Root 和 LSPosed，仅对应用列表中选中的应用生效。适合大多数应用，资源占用和耗电量极低。</string>
     <string name="location_mode_system_title">系统级 Hook</string>
-    <string name="location_mode_system_description">需要 Root 和 LSPosed。在应用级 Hook 基础上，额外处理 Android 系统、框架和电话服务。LSPosed 作用域必须同时勾选每个目标应用，以及 System Framework、Android System 和 Phone Services。适用于定位链路特殊或反模拟检测较强的应用，但在少数设备上可能造成系统定位异常。</string>
+    <string name="location_mode_system_description">需要 Root 和 LSPosed。勾选 System Framework、Android System 和 Phone Services 后，对第三方应用的系统定位请求全局生效，无需逐个选择应用。应用自身的网络定位、缓存或厂商 SDK 可能仍返回真实位置；此类应用可另外加入作用域启用兼容适配。系统模式并不保证所有应用和定位通道有效。</string>
     <string name="location_mode_mock_provider_title">Mock Provider</string>
     <string name="location_mode_mock_provider_description">不需要 Root 和 LSPosed，但需要先在“开发者选项 → 选择模拟位置信息应用”中选择“GeoLocation”。位置会被系统标记为“模拟位置”，可能被目标应用检测；模拟期间需要保持GeoLocation的后台服务运行，资源占用和耗电量相对较高。</string>
     <string name="module_inactive_banner">GeoLocation尚未在 LSPosed 中激活，请先启用模块并配置作用域。</string>

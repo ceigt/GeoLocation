@@ -67,7 +67,8 @@ object LocationUtil {
         provider: String = LocationManager.GPS_PROVIDER,
         targetPackage: String? = targetPackageName
     ): Location {
-        updateLocation(targetPackage = targetPackage)
+        val config = PreferencesUtil.snapshot()
+        updateLocation(config, targetPackage)
 
         val nowMillis = System.currentTimeMillis()
         val nowElapsedNanos = SystemClock.elapsedRealtimeNanos()
@@ -85,43 +86,45 @@ object LocationUtil {
                 // Emit a fresh, complete fix. Preserving a stale timestamp can make Tencent and
                 // fused clients ignore an otherwise valid replacement.
                 time = nowMillis
-                accuracy = originalLocation.accuracy
-                bearing = originalLocation.bearing
-                bearingAccuracyDegrees = originalLocation.bearingAccuracyDegrees
+                accuracy = if (originalLocation.hasAccuracy() && originalLocation.accuracy.isFinite()) {
+                    originalLocation.accuracy.coerceAtLeast(0F)
+                } else FALLBACK_ACCURACY_METERS
+                if (originalLocation.hasBearing()) bearing = originalLocation.bearing
+                if (originalLocation.hasBearingAccuracy()) bearingAccuracyDegrees = originalLocation.bearingAccuracyDegrees
                 elapsedRealtimeNanos = nowElapsedNanos
-                verticalAccuracyMeters = originalLocation.verticalAccuracyMeters
+                if (originalLocation.hasVerticalAccuracy()) verticalAccuracyMeters = originalLocation.verticalAccuracyMeters
             }
         }
 
         fakeLocation.latitude = latitude
         fakeLocation.longitude = longitude
 
-        if (accuracy != 0F) {
+        if (config.useAccuracy) {
             fakeLocation.accuracy = accuracy
         }
 
-        if (altitude != 0.0) {
+        if (config.useAltitude) {
             fakeLocation.altitude = altitude
         }
 
-        if (verticalAccuracy != 0F) {
+        if (config.useVerticalAccuracy) {
             fakeLocation.verticalAccuracyMeters = verticalAccuracy
         }
 
-        if (speed != 0F) {
+        if (config.useSpeed) {
             fakeLocation.speed = speed
         }
 
-        if (speedAccuracy != 0F) {
+        if (config.useSpeedAccuracy) {
             fakeLocation.speedAccuracyMetersPerSecond = speedAccuracy
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            if (meanSeaLevel != 0.0) {
+            if (config.useMeanSeaLevel) {
                 fakeLocation.mslAltitudeMeters = meanSeaLevel
             }
 
-            if (meanSeaLevelAccuracy != 0F) {
+            if (config.useMeanSeaLevelAccuracy) {
                 fakeLocation.mslAltitudeAccuracyMeters = meanSeaLevelAccuracy
             }
         }

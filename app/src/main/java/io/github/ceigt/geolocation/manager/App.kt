@@ -70,11 +70,6 @@ class App : Application(), XposedServiceHelper.OnServiceListener {
 
             remotePrefs.edit()
                 .putString(KEY_TARGET_APPS, JsonCodec.encodeStrings(targetPackages))
-                // A system-only scope cannot intercept vendor SDK objects created inside apps.
-                // Reset an invalid 1.2.5 configuration so the manager prompts for an app target.
-                .apply {
-                    if (targetPackages.isEmpty()) putBoolean(KEY_ENABLE_SYSTEM_HOOKS, false)
-                }
                 .apply()
         }
     }

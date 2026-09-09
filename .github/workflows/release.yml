@@ -60,7 +60,7 @@ jobs:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GEOLOCATION_GOOGLE_MAPS_API_KEY }}
         shell: bash
         run: |
-          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD BAIDU_WEB_AK; do
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
             if [[ -z "${!name}" ]]; then
               echo "::error::$name is not configured. See docs/PUBLISHING.md."
               exit 1

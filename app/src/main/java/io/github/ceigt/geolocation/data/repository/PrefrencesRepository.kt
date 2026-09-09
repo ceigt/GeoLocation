@@ -67,8 +67,8 @@ class PreferencesRepository(context: Context) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changedKey ->
             if (changedKey == null || changedKey == key) trySend(read())
         }
-        trySend(read())
         prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(read())
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 

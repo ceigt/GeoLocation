@@ -11,7 +11,7 @@ plugins {
 
 // Version is derived from the release tag in CI (passed via -PappVersionName=vX.Y.Z or the
 // APP_VERSION_NAME env var). Local builds fall back to the dev version below.
-val fallbackVersionName = "1.2.6"
+val fallbackVersionName = "2.0.0"
 
 fun resolveVersionName(): String {
     val provided = (project.findProperty("appVersionName") as String?)
@@ -115,7 +115,7 @@ android {
             signingConfig = if (hasGeoLocationKeystore) {
                 signingConfigs["geoLocation"]
             } else {
-                signingConfigs["debug"]
+                null
             }
         }
 

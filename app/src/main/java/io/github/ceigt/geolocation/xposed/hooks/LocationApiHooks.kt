@@ -18,11 +18,11 @@ class LocationApiHooks(
     private val tencent = TencentLocationHooks(module, classLoader)
 
     fun initHooks() {
-        LocationObjectHooks(module, classLoader).initHooks()
-        LocationManagerHooks(module, classLoader).initHooks()
-        ActiveLocationHooks(module).initHooks()
-        LocationCallbackHooks(module, classLoader).initHooks()
-        tencent.initHooks()
+        initialize("Location objects") { LocationObjectHooks(module, classLoader).initHooks() }
+        initialize("Location manager") { LocationManagerHooks(module, classLoader).initHooks() }
+        initialize("Active callbacks") { ActiveLocationHooks(module).initHooks() }
+        initialize("Callback results") { LocationCallbackHooks(module, classLoader).initHooks() }
+        initialize("Tencent SDK") { tencent.initHooks() }
         // Keep Wi-Fi scans, cell information and GNSS callback registration available. Tencent,
         // AMap and other vendor location SDKs use those sources to establish a fix before they
         // emit an Android Location. Clearing the sources here can suppress location callbacks
@@ -31,6 +31,16 @@ class LocationApiHooks(
     }
 
     fun onApplicationReady(loader: ClassLoader) {
-        tencent.initHooks(loader)
+        initialize("Tencent SDK retry") { tencent.initHooks(loader) }
+    }
+
+    private inline fun initialize(name: String, action: () -> Unit) {
+        try {
+            action()
+        } catch (error: Exception) {
+            module.log(Log.WARN, tag, "$name unavailable: ${error.javaClass.simpleName}")
+        } catch (error: LinkageError) {
+            module.log(Log.WARN, tag, "$name incompatible: ${error.javaClass.simpleName}")
+        }
     }
 }

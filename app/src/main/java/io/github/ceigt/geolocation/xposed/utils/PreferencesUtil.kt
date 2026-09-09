@@ -129,6 +129,7 @@ object PreferencesUtil {
         }
     }
 
+    @Synchronized
     private fun refreshCache(prefs: SharedPreferences? = preferences) {
         if (prefs == null) {
             cache = PreferencesSnapshot()
@@ -140,12 +141,13 @@ object PreferencesUtil {
             KEY_ENABLE_MOCK_PROVIDER,
             DEFAULT_ENABLE_MOCK_PROVIDER
         )
+        val point = parseLastClickedLocation(prefs.getString(KEY_LAST_CLICKED_LOCATION, null))
         cache = PreferencesSnapshot(
             // Mock Provider and Xposed replacement are mutually exclusive location sources.
             // Keeping installed interceptors inert also makes mode changes take effect without
             // restarting target apps that already have this module loaded.
-            isPlaying = prefs.getBoolean(KEY_IS_PLAYING, false) && !mockProviderEnabled,
-            lastClickedLocation = parseLastClickedLocation(prefs.getString(KEY_LAST_CLICKED_LOCATION, null)),
+            isPlaying = prefs.getBoolean(KEY_IS_PLAYING, false) && !mockProviderEnabled && point != null,
+            lastClickedLocation = point,
             useAccuracy = prefs.getBoolean(KEY_USE_ACCURACY, DEFAULT_USE_ACCURACY),
             accuracy = readDouble(prefs, KEY_ACCURACY, DEFAULT_ACCURACY),
             useAltitude = prefs.getBoolean(KEY_USE_ALTITUDE, DEFAULT_USE_ALTITUDE),
@@ -190,8 +192,10 @@ object PreferencesUtil {
     private fun parseLastClickedLocation(json: String?): LastClickedLocation? {
         if (json.isNullOrBlank()) return null
         return runCatching { JsonCodec.decodeLocation(json) }
-            .onFailure { log("Error parsing $KEY_LAST_CLICKED_LOCATION JSON: ${it.message}", Log.ERROR) }
+            .onFailure { log("Invalid saved location configuration", Log.ERROR) }
             .getOrNull()
+            ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() &&
+                it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
     }
 
     private fun parseTargetApps(json: String?): Set<String> {

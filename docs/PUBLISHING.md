@@ -73,6 +73,8 @@ APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本�
 
 `.github/workflows/release.yml` 仅可手动触发，并向**已经创建的** GitHub Release 上传 APK。先在仓库 Settings → Secrets and variables → Actions 添加：
 
+2.0 使用本机独立正式签名；本轮没有把私钥自动上传到 Actions。以下前四项为 CI 签名必需项，地图凭据均可留空，由安装者在设置中输入。缺少本地签名配置时，Release 构建保持未签名，不再使用 Debug 证书替代。
+
 ```text
 GEOLOCATION_KEYSTORE_BASE64
 GEOLOCATION_KEYSTORE_PASSWORD

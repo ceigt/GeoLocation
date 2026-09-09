@@ -250,7 +250,9 @@ class SystemServicesHooks(
                 }
 
                 else -> {
-                    if (replaceLocationFields(arg, targetPackage)) {
+                    val copied = copyLocationContainer(arg, targetPackage)
+                    if (copied != null) {
+                        newArgs[index] = copied
                         replaced = true
                     }
                 }
@@ -581,6 +583,24 @@ class SystemServicesHooks(
         return value != null && "." in value && !value.startsWith("android.location.")
     }
 
+    private fun copyLocationContainer(value: Any?, targetPackage: String?): Any? {
+        // Provider results can be shared between registrations and the last-fix cache.
+        // Never mutate a shared LocationResult for one recipient's coordinate system.
+        if (value?.javaClass?.name != "android.location.LocationResult") return null
+        return runCatching {
+            val locations = findMethod(value.javaClass, "asList")?.invoke(value) as? List<*>
+                ?: error("LocationResult.asList unavailable")
+            val copies = locations.map { original ->
+                LocationUtil.createFakeLocation(original as Location, targetPackage = targetPackage)
+            }
+            val factory = findMethod(value.javaClass, "create", List::class.java)
+                ?: error("LocationResult.create unavailable")
+            factory.invoke(null, copies)
+        }.onFailure {
+            reportOnce("LocationResult copy unavailable: ${it.javaClass.simpleName}")
+        }.getOrNull()
+    }
+
     private fun replaceLocationFields(value: Any?, targetPackage: String? = null): Boolean {
         if (value == null) return false
         var replaced = false
@@ -622,6 +642,9 @@ class SystemServicesHooks(
         }
 
         if (result != null) {
+            if (result.javaClass.name == "android.location.LocationResult") {
+                return copyLocationContainer(result, targetPackage) ?: result
+            }
             if (replaceLocationFields(result, targetPackage)) {
                 return result
             }

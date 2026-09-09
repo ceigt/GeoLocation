@@ -310,9 +310,6 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 
         val targetApps = applicationHookTargets(scope)
         preferencesRepository.saveTargetApps(targetApps)
-        if (targetApps.isEmpty()) {
-            preferencesRepository.saveEnableSystemHooks(false)
-        }
     }
 
     private fun setPending(packageName: String, pending: Boolean) {
