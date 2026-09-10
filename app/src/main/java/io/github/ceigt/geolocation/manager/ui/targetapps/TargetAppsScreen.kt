@@ -451,7 +451,9 @@ private fun TargetAppRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (app.isSelected && !app.isScopeOnly) {
+                // Coordinate overrides also apply to system callbacks for unscoped apps.
+                // Editing an override must not require changing the LSPosed scope.
+                if (!app.isScopeOnly) {
                     Text(
                         text = stringResource(
                             R.string.target_apps_coordinate_system,

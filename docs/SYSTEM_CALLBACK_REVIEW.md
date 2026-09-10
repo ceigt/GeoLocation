@@ -1,5 +1,11 @@
 # System callbacks review — 2026-09-10
 
+## 2.1.1 coordinate configuration follow-up
+
+The user verified that WeChat and WeCom both locate correctly with **WGS-84** output in system mode, with only the three system components selected. A retained GCJ-02 override caused an approximately 600 m offset on this path. This is consistent with an extra conversion downstream; it is not evidence that every SDK path expects the same coordinates.
+
+The UI previously hid coordinate overrides for unselected apps. Scope synchronization did not delete these overrides. Version 2.1.1 exposes the coordinate control independently of scope selection, matching the already independent storage and system callback behavior. Existing overrides are preserved; users upgrading should check both apps are set to WGS-84 for the tested system-mode setup. The user verified this UI change in 2.1.1-rc1. No further location-engine change is made in 2.1.1.
+
 ## Observed failure and correction
 
 On a Pixel 9 Pro XL running Android 15, WeCom 5.0.9 could not finish location acquisition with the real location switch off. Live diagnostics established two independent issues:
