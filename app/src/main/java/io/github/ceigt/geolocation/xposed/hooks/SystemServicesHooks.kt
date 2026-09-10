@@ -285,7 +285,6 @@ class SystemServicesHooks(
             "addGnssMeasurementsListener",
             "addGnssNavigationMessageListener",
             "addGnssAntennaInfoListener",
-            "registerGnssStatusCallback",
             "registerGnssNmeaCallback"
         )
 
@@ -315,13 +314,10 @@ class SystemServicesHooks(
             if (serviceName == "com.android.server.wifi.WifiService") {
                 val serviceClassLoader = chain.args.getOrNull(1) as? PathClassLoader
                 if (serviceClassLoader != null) {
-                    val wifiServiceClass = findClass(
+                    findClass(
                         serviceClassLoader,
                         "com.android.server.wifi.WifiServiceImpl"
-                    )
-                    if (wifiServiceClass != null) {
-                        hookWifiServiceImpl(wifiServiceClass)
-                    }
+                    )?.let(::hookWifiServiceImpl)
                 }
             }
             result
