@@ -7,6 +7,7 @@ import io.github.ceigt.geolocation.data.REMOTE_PREFS_GROUP
 import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
 import io.github.ceigt.geolocation.xposed.hooks.isolateHook
 import io.github.ceigt.geolocation.xposed.hooks.LocationApiHooks
+import io.github.ceigt.geolocation.xposed.hooks.PhoneServicesHooks
 import io.github.ceigt.geolocation.xposed.hooks.SystemServicesHooks
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
 import io.github.ceigt.geolocation.xposed.utils.PreferencesUtil
@@ -39,17 +40,23 @@ class ModuleEntry : XposedModule() {
     override fun onPackageReady(param: PackageReadyParam) {
         log(Log.INFO, TAG, "onPackageReady: ${param.packageName}")
 
+        if (isSystemServer) {
+            systemServicesHooks?.onPackageReady(param.packageName, param.classLoader)
+            return
+        }
+
         // Run per-package setup only once.
-        if (!param.isFirstPackage || isSystemServer) return
+        if (!param.isFirstPackage) return
 
         PreferencesUtil.init(getRemotePreferences(REMOTE_PREFS_GROUP))
         LocationUtil.targetPackageName = param.packageName
 
         if (param.packageName == PHONE_PACKAGE) {
-            // Keep telephony callbacks intact. Tencent and other network-location clients need
-            // cell updates to establish a fix; clearing them can prevent any location result.
-            // We still skip app-level location hooks in the phone process itself.
-            log(Log.INFO, TAG, "Skipping hooks for the telephony process in compatibility mode.")
+            // System-hook mode must also cover tower-derived positioning. App-level hooks do not
+            // belong in the phone process, so install only the dedicated telephony identity guard.
+            isolateHook({ log(Log.WARN, TAG, "Phone Services adapters unavailable: ${it.javaClass.simpleName}") }) {
+                PhoneServicesHooks(this, param.classLoader).initHooks()
+            }
         } else if (param.packageName == MANAGER_APP_PACKAGE_NAME) {
             // The manager must always read the device's real location for the “My location” map
             // control. This also protects users who accidentally add the manager to Xposed scope.

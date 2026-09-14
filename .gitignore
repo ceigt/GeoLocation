@@ -36,6 +36,7 @@ ehthumbs.db
 
 # === Captures / profiling / other ===
 captures/
+/work/
 *.hprof
 
 # === Google services (API keys etc) ===

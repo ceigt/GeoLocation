@@ -4,7 +4,9 @@ package io.github.ceigt.geolocation.xposed.hooks
 import android.location.Location
 import android.location.LocationManager
 import android.net.wifi.WifiInfo
+import android.os.Binder
 import android.os.Build
+import android.os.Process
 import android.telephony.CellInfo
 import android.util.Log
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
@@ -43,6 +45,7 @@ class SystemServicesHooks(
 
     private companion object {
         const val LOG_SYSTEM_LOCATION_EVENTS = false
+        const val ENABLE_SYSTEM_NETWORK_IDENTITY_GUARDS = true
         const val ENABLE_RISKY_SYSTEM_IDENTITY_HOOKS = false
         const val MAX_PACKAGE_SCAN_DEPTH = 5
         const val FUSED_PROVIDER = "fused"
@@ -50,25 +53,34 @@ class SystemServicesHooks(
 
     private val hookedWifiServiceClasses = Collections.newSetFromMap(ConcurrentHashMap<Class<*>, Boolean>())
     private val reportedSystemEvents = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+    private val activeLocationHooks = SystemActiveLocationHooks(module, classLoader)
 
     private fun reportOnce(event: String) {
         if (reportedSystemEvents.add(event)) module.log(Log.INFO, tag, event)
     }
 
     fun initHooks() {
-        initialize("System active callbacks") { SystemActiveLocationHooks(module, classLoader).initHooks() }
+        initialize("System active callbacks") { activeLocationHooks.initHooks() }
         initialize("Last location") { hookLastLocation(classLoader) }
         initialize("Current location") { hookCurrentLocation(classLoader) }
         initialize("Location dispatch") { hookLocationDispatch(classLoader) }
         initialize("MIUI adapter") { hookMiuiLocationServices(classLoader) }
+        if (ENABLE_SYSTEM_NETWORK_IDENTITY_GUARDS) {
+            initialize("Wi-Fi identity") { hookWifiServices(classLoader) }
+        }
         if (ENABLE_RISKY_SYSTEM_IDENTITY_HOOKS) {
-            hookWifiServices(classLoader)
             hookGnssRegistration(classLoader)
             hookGeofence(classLoader)
         } else {
             module.log(Log.INFO, tag, "Skipping GNSS/Wi-Fi/geofence hooks in stability mode.")
         }
         module.log(Log.INFO, tag, "System hook setup finished; delivery requires runtime verification")
+    }
+
+    fun onPackageReady(packageName: String, packageClassLoader: ClassLoader) {
+        if (packageName == "com.android.providers.settings") {
+            activeLocationHooks.onSettingsProviderReady(packageClassLoader)
+        }
     }
 
     private inline fun initialize(name: String, install: () -> Unit) = isolateHook(
@@ -327,11 +339,37 @@ class SystemServicesHooks(
     private fun hookWifiServiceImpl(wifiServiceClass: Class<*>) {
         if (!hookedWifiServiceClasses.add(wifiServiceClass)) return
 
+        hookAll(wifiServiceClass, "getWifiEnabledState") { chain ->
+            val result = chain.proceed()
+            if (shouldSpoofBinderCaller()) {
+                reportOnce("Wi-Fi state synthesized for third-party location clients")
+                3 // WifiManager.WIFI_STATE_ENABLED
+            } else {
+                result
+            }
+        }
+
+        hookAll(wifiServiceClass, "isScanAlwaysAvailable") { chain ->
+            val result = chain.proceed()
+            if (shouldSpoofBinderCaller()) true else result
+        }
+
+        hookAll(wifiServiceClass, "startScan") { chain ->
+            val result = chain.proceed()
+            if (targetPackageFrom(chain.args) != null) true else result
+        }
+
         hookAll(wifiServiceClass, "getScanResults") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofArgs(chain.args)) {
-                logSystemLocationEvent { "Cleared Wi-Fi scan results while spoofing." }
-                emptyList<Any>()
+            val targetPackage = targetPackageFrom(chain.args)
+            if (targetPackage != null && result != null) {
+                // Android 15's Binder service returns ParceledListSlice, not List. Returning a raw
+                // list here breaks unmarshalling in clients and is commonly surfaced as a generic
+                // "location service disabled" error. Keep the service available while withholding
+                // network identifiers, so the SDK can only use the synthetic GNSS fix.
+                wrapParceledList(result, emptyList())?.also {
+                    reportOnce("Empty Wi-Fi scan supplied for $targetPackage")
+                } ?: result
             } else {
                 result
             }
@@ -353,6 +391,20 @@ class SystemServicesHooks(
                 result
             }
         }
+    }
+
+    private fun wrapParceledList(original: Any, values: List<Any>): Any? = runCatching {
+        original.javaClass.getDeclaredConstructor(List::class.java)
+            .apply { isAccessible = true }
+            .newInstance(values)
+    }.onFailure {
+        reportOnce("Unable to construct virtual Wi-Fi scan payload: ${it.javaClass.simpleName}")
+    }.getOrNull()
+
+    private fun shouldSpoofBinderCaller(): Boolean {
+        val config = PreferencesUtil.snapshot()
+        return config.enableSystemHooks && config.isPlaying &&
+            Binder.getCallingUid() >= Process.FIRST_APPLICATION_UID
     }
 
     private fun hookGeofence(classLoader: ClassLoader) {

@@ -4,6 +4,7 @@ package io.github.ceigt.geolocation.xposed.utils
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import io.github.ceigt.geolocation.data.DEFAULT_ACCURACY
@@ -129,10 +130,19 @@ object LocationUtil {
             }
         }
 
+        // Keep the Location payload consistent with the synthetic GNSS status dispatched by the
+        // system hook. AMap 6.x treats an otherwise valid GPS fix with a missing/zero `satellites`
+        // extra as simulated and discards it before the application callback.
+        fakeLocation.extras = Bundle().apply {
+            putInt("satellites", SYNTHETIC_SATELLITE_COUNT)
+        }
+
         attemptHideMockProvider(fakeLocation)
 
         return fakeLocation
     }
+
+    private const val SYNTHETIC_SATELLITE_COUNT = 8
 
     private fun attemptHideMockProvider(fakeLocation: Location) {
         if (!canAttemptMockProviderHide) return

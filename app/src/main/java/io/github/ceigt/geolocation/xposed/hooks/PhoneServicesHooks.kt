@@ -37,12 +37,10 @@ class PhoneServicesHooks(
 
     private fun hookCellLocation(phoneInterfaceManagerClass: Class<*>) {
         hookAll(phoneInterfaceManagerClass, "getCellLocation") { chain ->
-            val result = chain.proceed()
             if (shouldSpoofArgs(chain.args)) {
-                logPhoneEvent { "Cleared cell location while spoofing." }
                 null
             } else {
-                result
+                chain.proceed()
             }
         }
     }
@@ -50,11 +48,6 @@ class PhoneServicesHooks(
     private fun hookCellInfo(phoneInterfaceManagerClass: Class<*>) {
         hookAll(phoneInterfaceManagerClass, "getAllCellInfo") { chain ->
             if (shouldSpoofArgs(chain.args)) {
-                // Return empty cell info on purpose so apps that rely on tower checks can fall back
-                // to GPS-derived location when spoofing is active.
-                // TODO: This may conflict with other telephony signals (for example, network type
-                // still reporting MOBILE). If users report issues, synthesize coherent fake data.
-                logPhoneEvent { "Cleared all cell info while spoofing." }
                 emptyList<CellInfo>()
             } else {
                 chain.proceed()
@@ -75,7 +68,14 @@ class PhoneServicesHooks(
 
         hookAll(phoneInterfaceManagerClass, "requestCellInfoUpdateInternal") { chain ->
             if (shouldSpoofArgs(chain.args)) {
-                logPhoneEvent { "Blocked async cell info update while spoofing." }
+                // Android 15 clients commonly wait for this Binder callback before starting their
+                // network-location pipeline. Dropping the request makes those clients report that
+                // location services are disabled even while synthetic GNSS fixes are arriving.
+                val callback = chain.args.getOrNull(1)
+                val cells = emptyList<CellInfo>()
+                if (!deliverCellInfo(callback, cells)) {
+                    module.log(Log.WARN, tag, "Unable to deliver synthetic async cell info callback.")
+                }
                 defaultReturnValue(chain.executable as? Method)
             } else {
                 chain.proceed()
@@ -117,15 +117,40 @@ class PhoneServicesHooks(
         return null
     }
 
-    // Name-based attribution: only spoof while playing and when a target package can be read off
-    // the call arguments. Telephony calls carry the caller package as a plain String argument.
+    // In system-hook mode every third-party caller is a target. Requiring the package to also be
+    // selected in the manager defeats global mode and lets vendor SDKs recover a nearby real fix
+    // from cell towers when the system location switch is on.
     private fun shouldSpoofArgs(args: List<Any?>?): Boolean {
         val config = PreferencesUtil.snapshot()
         if (!config.enableSystemHooks || !config.isPlaying) return false
         return args?.asSequence()
             ?.mapNotNull(::extractPackageName)
-            ?.any(config.targetApps::contains) == true
+            ?.any(::isThirdPartyPackage) == true
     }
+
+    private fun deliverCellInfo(callback: Any?, cells: List<CellInfo>): Boolean {
+        if (callback == null) return false
+        return try {
+            val method = callback.javaClass.methods.firstOrNull {
+                it.name == "onCellInfo" && it.parameterCount == 1
+            } ?: callback.javaClass.declaredMethods.firstOrNull {
+                it.name == "onCellInfo" && it.parameterCount == 1
+            } ?: return false
+            method.isAccessible = true
+            method.invoke(callback, cells)
+            true
+        } catch (error: Throwable) {
+            module.log(Log.ERROR, tag, "Synthetic cell info callback failed: ${error.message}")
+            false
+        }
+    }
+
+    private fun isThirdPartyPackage(packageName: String): Boolean =
+        packageName != "android" &&
+            packageName != "system" &&
+            packageName != "com.android.phone" &&
+            !packageName.startsWith("android.") &&
+            !packageName.startsWith("com.android.")
 
     private fun extractPackageName(value: Any?): String? {
         if (value is String) return value.takeIf { "." in it && !it.startsWith("android.") }
