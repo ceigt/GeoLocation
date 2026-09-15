@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <permission android:name="io.github.ceigt.geolocation.CONTROL" android:protectionLevel="signature" />
+    <uses-permission android:name="io.github.ceigt.geolocation.CONTROL" />
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
@@ -48,6 +50,7 @@
         -->
         <receiver
             android:name=".manager.control.ControlReceiver"
+            android:permission="io.github.ceigt.geolocation.CONTROL"
             android:enabled="false"
             android:exported="true">
             <intent-filter>

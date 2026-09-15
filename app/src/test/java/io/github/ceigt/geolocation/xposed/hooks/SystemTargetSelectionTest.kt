@@ -5,6 +5,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SystemTargetSelectionTest {
+    @Test fun managerQueriesAreNeverReplaced() {
+        assertNull(selectSystemTargetPackage(setOf("io.github.ceigt.geolocation"), emptySet()))
+    }
     @Test fun systemOnlyScopeStillSelectsThirdPartyCaller() {
         val result = selectSystemTargetPackage(
             linkedSetOf("android", "com.android.phone", "com.eg.android.AlipayGphone"),

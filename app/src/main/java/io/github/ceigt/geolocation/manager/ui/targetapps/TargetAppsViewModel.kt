@@ -13,6 +13,7 @@ import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
 import io.github.ceigt.geolocation.data.applicationHookTargets
 import io.github.ceigt.geolocation.data.repository.PreferencesRepository
 import io.github.ceigt.geolocation.manager.App
+import io.github.ceigt.geolocation.manager.control.RootCommands
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -180,6 +181,7 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
      * it again. Requires the user to grant root (su); failures (e.g. denied prompt) are reported.
      */
     fun relaunchApp(packageName: String) {
+        if (!RootCommands.validPackage(packageName) || _uiState.value.apps.none { it.packageName == packageName }) return
         if (_uiState.value.apps.any { it.packageName == packageName && it.isScopeOnly }) return
         if (_uiState.value.relaunchingPackages.contains(packageName)) return
         val label = _uiState.value.apps.firstOrNull { it.packageName == packageName }?.label ?: packageName
@@ -195,7 +197,7 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
                 return@launch
             }
 
-            val killed = withContext(Dispatchers.IO) { runAsRoot("am force-stop $packageName") }
+            val killed = withContext(Dispatchers.IO) { RootCommands.forceStop(packageName) }
             if (!killed) {
                 setRelaunching(packageName, false)
                 _events.tryEmit(TargetAppsEvent.RelaunchFailed(label))
@@ -215,19 +217,7 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /** Verifies (and, on first use, requests) root by running `su -c id` and checking for uid=0. */
-    private fun hasRootAccess(): Boolean = try {
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        process.waitFor() == 0 && output.contains("uid=0")
-    } catch (e: Exception) {
-        false
-    }
-
-    private fun runAsRoot(command: String): Boolean = try {
-        Runtime.getRuntime().exec(arrayOf("su", "-c", command)).waitFor() == 0
-    } catch (e: Exception) {
-        false
-    }
+    private fun hasRootAccess(): Boolean = RootCommands.hasRoot()
 
     private fun addToScope(service: XposedService, packageName: String) {
         setPending(packageName, true)

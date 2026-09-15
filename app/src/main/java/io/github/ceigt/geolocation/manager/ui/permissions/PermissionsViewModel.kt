@@ -26,7 +26,10 @@ class PermissionsViewModel : ViewModel() {
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-        _hasPermissions.value = fineLocationGranted
+        val coarseLocationGranted = ContextCompat.checkSelfPermission(context,
+            Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        _hasPermissions.value = fineLocationGranted || coarseLocationGranted
+        if (_hasPermissions.value) _permanentlyDenied.value = false
         _permissionsChecked.value = true
     }
 

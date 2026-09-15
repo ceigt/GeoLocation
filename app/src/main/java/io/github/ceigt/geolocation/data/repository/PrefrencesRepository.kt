@@ -10,29 +10,23 @@ import io.github.ceigt.geolocation.data.model.FavoriteLocation
 import io.github.ceigt.geolocation.data.model.LastClickedLocation
 import io.github.ceigt.geolocation.manager.App
 import io.github.ceigt.geolocation.manager.mock.MockLocationService
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 
 /**
- * Single-source-of-truth preferences store.
- *
- * Each setting lives in exactly one place:
- *  - Hook-shared settings (read by the Xposed module) live in the LSPosed remote
- *    preferences exposed through [App.service]. They are only available while the
- *    XposedService is bound; when it isn't, reads fall back to defaults and writes
- *    are dropped (the UI is gated behind a bound service anyway).
- *  - Manager-only settings (language, favorites, broadcast control) live in a local
- *    [SharedPreferences] file so they are always available, including at startup and
- *    when the module is disabled.
+ * Manager state is durable locally. Hook settings are mirrored through PreferenceSync;
+ * offline edits remain pending until LSPosed reconnects. Map credentials stay local.
  *
  * Doubles are encoded as raw long bits because [SharedPreferences] has no putDouble,
  * keeping read/write symmetry with the hook-side PreferencesUtil.
  */
 class PreferencesRepository(context: Context) {
+    private companion object { val writeMutex = Mutex() }
     private val tag = "PreferencesRepository"
 
     private val appContext = context.applicationContext
@@ -40,21 +34,14 @@ class PreferencesRepository(context: Context) {
     private val localPrefs: SharedPreferences =
         appContext.getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
 
-    private fun remotePrefs(): SharedPreferences? =
-        App.service?.getRemotePreferences(REMOTE_PREFS_GROUP)
+    // The manager always reads its durable cache, including in standalone Mock Provider mode.
+    private fun remotePrefs(): SharedPreferences? = localPrefs
 
     // region Flow helpers
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    @Suppress("UNUSED_PARAMETER")
     private fun <T> remoteFlow(key: String, default: T, read: (SharedPreferences) -> T): Flow<T> =
-        App.serviceState.flatMapLatest { service ->
-            val prefs = service?.getRemotePreferences(REMOTE_PREFS_GROUP)
-            if (prefs == null) {
-                flowOf(default)
-            } else {
-                prefsChangeFlow(prefs, key) { read(prefs) }
-            }
-        }
+        prefsChangeFlow(localPrefs, key) { read(localPrefs) }
 
     private fun <T> localFlow(key: String, read: (SharedPreferences) -> T): Flow<T> =
         prefsChangeFlow(localPrefs, key) { read(localPrefs) }
@@ -76,13 +63,12 @@ class PreferencesRepository(context: Context) {
 
     // region Write helpers
 
-    private inline fun editRemote(action: SharedPreferences.Editor.() -> Unit) {
-        val prefs = remotePrefs()
-        if (prefs == null) {
-            Log.w(tag, "Remote preferences unavailable (service not bound); write skipped")
-            return
+    private suspend fun editRemote(action: SharedPreferences.Editor.() -> Unit) = writeMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val remote = runCatching { App.service?.getRemotePreferences(REMOTE_PREFS_GROUP) }.getOrNull()
+            PreferenceSync.edit(localPrefs, remote, action)
+            App.requestSync()
         }
-        prefs.edit(action = action)
     }
 
     private inline fun editLocal(action: SharedPreferences.Editor.() -> Unit) {
@@ -107,11 +93,18 @@ class PreferencesRepository(context: Context) {
     // endregion
 
     // region Is Playing (remote)
+    fun getPendingHookSettingsFlow(): Flow<Boolean> = localFlow(PreferenceSync.PENDING) {
+        it.getStringSet(PreferenceSync.PENDING, emptySet()).orEmpty().isNotEmpty()
+    }
+
     fun getIsPlayingFlow(): Flow<Boolean> = remoteFlow(KEY_IS_PLAYING, false) {
         it.getBoolean(KEY_IS_PLAYING, false)
     }
     suspend fun saveIsPlaying(isPlaying: Boolean) {
-        editLocal { putBoolean(KEY_IS_PLAYING, isPlaying) }
+        if (isPlaying) require(getLastClickedLocation()?.let {
+            it.latitude.isFinite() && it.longitude.isFinite() &&
+                it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0
+        } == true) { "Select a valid location before starting simulation" }
         editRemote { putBoolean(KEY_IS_PLAYING, isPlaying) }
         MockLocationService.sync(appContext, isPlaying && getEnableMockProvider())
     }
@@ -125,8 +118,8 @@ class PreferencesRepository(context: Context) {
         }
 
     suspend fun saveLastClickedLocation(latitude: Double, longitude: Double) {
+        require(latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0)
         val json = JsonCodec.encodeLocation(LastClickedLocation(latitude, longitude))
-        editLocal { putString(KEY_LAST_CLICKED_LOCATION, json) }
         editRemote { putString(KEY_LAST_CLICKED_LOCATION, json) }
         if (getIsPlaying() && getEnableMockProvider()) {
             MockLocationService.sync(appContext, true)
@@ -140,7 +133,6 @@ class PreferencesRepository(context: Context) {
         )
 
     suspend fun clearLastClickedLocation() {
-        editLocal { remove(KEY_LAST_CLICKED_LOCATION) }
         editRemote { remove(KEY_LAST_CLICKED_LOCATION) }
         saveIsPlaying(false)
         Log.d(tag, "Cleared 'LastClickedLocation' and set 'IsPlaying' to false")
@@ -160,7 +152,6 @@ class PreferencesRepository(context: Context) {
     // region Use Accuracy / Accuracy (remote)
     fun getUseAccuracyFlow(): Flow<Boolean> = remoteFlow(KEY_USE_ACCURACY, DEFAULT_USE_ACCURACY) { it.getBoolean(KEY_USE_ACCURACY, DEFAULT_USE_ACCURACY) }
     suspend fun saveUseAccuracy(useAccuracy: Boolean) {
-        editLocal { putBoolean(KEY_USE_ACCURACY, useAccuracy) }
         editRemote { putBoolean(KEY_USE_ACCURACY, useAccuracy) }
     }
     fun getUseAccuracy(): Boolean = remotePrefs()?.getBoolean(KEY_USE_ACCURACY, DEFAULT_USE_ACCURACY)
@@ -169,7 +160,6 @@ class PreferencesRepository(context: Context) {
     fun getAccuracyFlow(): Flow<Double> = remoteFlow(KEY_ACCURACY, DEFAULT_ACCURACY) { readRemoteDouble(KEY_ACCURACY, DEFAULT_ACCURACY) }
     suspend fun saveAccuracy(accuracy: Double) {
         val bits = java.lang.Double.doubleToRawLongBits(accuracy)
-        editLocal { putLong(KEY_ACCURACY, bits) }
         editRemote { putLong(KEY_ACCURACY, bits) }
     }
     fun getAccuracy(): Double {
@@ -260,7 +250,6 @@ class PreferencesRepository(context: Context) {
     }
 
     suspend fun saveEnableMockProvider(enabled: Boolean) {
-        editLocal { putBoolean(KEY_ENABLE_MOCK_PROVIDER, enabled) }
         // Mirror the selected mode so already-injected Xposed hooks can immediately become
         // inert while Mock Provider is the active location source.
         editRemote { putBoolean(KEY_ENABLE_MOCK_PROVIDER, enabled) }
@@ -352,13 +341,11 @@ class PreferencesRepository(context: Context) {
     suspend fun addFavorite(favorite: FavoriteLocation) {
         val updated = getFavorites().toMutableList().apply { add(favorite) }
         saveFavorites(updated)
-        Log.d(tag, "Added Favorite: $favorite")
     }
 
     suspend fun removeFavorite(favorite: FavoriteLocation) {
         val updated = getFavorites().toMutableList().apply { remove(favorite) }
         saveFavorites(updated)
-        Log.d(tag, "Removed Favorite: $favorite")
     }
 
     fun getFavorites(): List<FavoriteLocation> = parseFavorites(localPrefs.getString(KEY_FAVORITES, null))

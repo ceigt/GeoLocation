@@ -3,161 +3,166 @@ package io.github.ceigt.geolocation.xposed.hooks
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Bundle
-import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
 import io.github.ceigt.geolocation.xposed.utils.PreferencesUtil
 import io.github.libxposed.api.XposedInterface
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 
-/** Keeps normal provider registration and supplements it with fresh simulated callbacks. */
+/** Native requests retain permission/cancellation checks; supplements share their limits. */
 internal class ActiveLocationHooks(private val module: XposedInterface) {
-    private val registry = ListenerRegistry<LocationListener, Registration>()
+    private class Key(val listener: LocationListener, val provider: String) {
+        override fun equals(other: Any?) = other is Key && listener === other.listener && provider == other.provider
+        override fun hashCode() = 31 * System.identityHashCode(listener) + provider.hashCode()
+    }
+    private val registrationLock = Any()
+    private val registrations = ConcurrentHashMap<Key, Registration>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
-    private var ticking = false // accessed only on handler
-    private val reported = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-
-    private fun active(): Boolean = PreferencesUtil.snapshot().let {
-        it.isPlaying && it.lastClickedLocation != null
-    }
-
-    private fun report(event: String) {
-        if (reported.add(event)) module.log(Log.INFO, TAG, event)
-    }
+    private var ticking = false
+    private fun active() = PreferencesUtil.snapshot().isPlaying
 
     private inner class Registration(
-        val original: LocationListener,
-        val provider: String,
-        val executor: Executor,
-        val single: Boolean,
-        val manager: LocationManager
+        val key: Key, val executor: Executor, val manager: LocationManager,
+        val budget: SystemDeliveryBudget, val minimumDistance: Float
     ) : LocationListener {
-        val pending = AtomicBoolean(false)
-        val delivered = AtomicBoolean(false)
+        private val context = runCatching {
+            LocationManager::class.java.getDeclaredField("mContext").apply { isAccessible = true }
+                .get(manager) as android.content.Context
+        }.getOrNull()
+        private val pending = AtomicBoolean(false)
+        private var lastLocation: Location? = null
 
+        @Synchronized
         override fun onLocationChanged(location: Location) {
-            if (single && !delivered.compareAndSet(false, true)) return
-            original.onLocationChanged(if (active()) {
-                report("framework callback replaced")
-                LocationUtil.createFakeLocation(location)
-            } else location)
-            if (single) retire()
+            if (registrations[key] !== this) return
+            val now = SystemClock.elapsedRealtime()
+            if (budget.expired(now)) { retire(); return }
+            val spoof = active()
+            val fix = if (spoof) LocationUtil.createFakeLocation(location) else location
+            if (spoof && (!budget.due(now) || !movedEnough(fix))) return
+            budget.sent(now)
+            lastLocation = Location(fix)
+            try { key.listener.onLocationChanged(fix) }
+            finally { if (budget.expired(now)) retire() }
         }
 
-        override fun onProviderEnabled(provider: String) = original.onProviderEnabled(provider)
-        override fun onProviderDisabled(provider: String) = original.onProviderDisabled(provider)
-        @Suppress("DEPRECATION")
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) =
-            original.onStatusChanged(provider, status, extras)
+        private fun movedEnough(fix: Location): Boolean = minimumDistance <= 0f ||
+            lastLocation?.distanceTo(fix)?.let { it >= minimumDistance } != false
+
+        override fun onProviderEnabled(provider: String) = key.listener.onProviderEnabled(provider)
+        override fun onProviderDisabled(provider: String) = key.listener.onProviderDisabled(provider)
 
         fun retire() {
-            if (registry.isCurrent(original, this)) registry.remove(original)
-            if (single) runCatching { manager.removeUpdates(this) }
+            registrations.remove(key, this)
+            runCatching { manager.removeUpdates(this) }
         }
 
         fun dispatch() {
-            if (!pending.compareAndSet(false, true)) return
+            val now = SystemClock.elapsedRealtime()
+            if (budget.expired(now)) { retire(); return }
+            if (!active() || !budget.due(now) || !pending.compareAndSet(false, true)) return
             try {
                 executor.execute {
                     try {
-                        if (registry.isCurrent(original, this) && active() &&
-                            (!single || delivered.compareAndSet(false, true))) {
-                            original.onLocationChanged(LocationUtil.createFakeLocation(provider = provider))
-                            report("active framework callback delivered")
-                            if (single) retire()
-                        }
-                    } catch (error: Exception) {
-                        report("callback failed: ${error.javaClass.simpleName}")
-                        retire()
+                        if (registrations[key] === this && active() && maySupplement())
+                            onLocationChanged(LocationUtil.createFakeLocation(provider = key.provider))
                     } finally { pending.set(false) }
                 }
             } catch (error: Exception) {
                 pending.set(false)
                 retire()
-                report("executor rejected callback: ${error.javaClass.simpleName}")
+                module.log(Log.WARN, TAG, "Callback executor failed: ${error.javaClass.simpleName}")
             }
         }
+
+        private fun maySupplement(): Boolean = runCatching {
+            val ctx = context ?: return@runCatching false
+            if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED) return@runCatching false
+            val ops = ctx.getSystemService(android.app.AppOpsManager::class.java) ?: return@runCatching false
+            // noteOp evaluates foreground-only grants at delivery time on pre-Android 16 too.
+            ops.noteOpNoThrow(android.app.AppOpsManager.OPSTR_FINE_LOCATION,
+                android.os.Process.myUid(), ctx.packageName) == android.app.AppOpsManager.MODE_ALLOWED
+        }.getOrDefault(false)
     }
 
     private val tick = object : Runnable {
         override fun run() {
-            val entries = registry.snapshot()
-            if (entries.isEmpty()) { ticking = false; return }
-            if (active()) entries.forEach { it.second.dispatch() }
-            handler.postDelayed(this, 1000L)
+            if (registrations.isEmpty()) { ticking = false; return }
+            registrations.values.toList().forEach { it.dispatch() }
+            handler.postDelayed(this, 1000)
         }
     }
 
     fun initHooks() {
-        var installed = 0
         LocationManager::class.java.declaredMethods.filter {
             it.name in setOf("requestLocationUpdates", "requestSingleUpdate", "removeUpdates", "getCurrentLocation")
         }.forEach { method ->
-            runCatching {
-                when {
-                    method.name == "getCurrentLocation" && method.parameterTypes.contains(Consumer::class.java) -> {
-                        module.hook(method).intercept { chain ->
-                            val callback = chain.args.filterIsInstance<Consumer<Location?>>().firstOrNull()
-                            val executor = chain.args.filterIsInstance<Executor>().firstOrNull()
-                            val cancellation = chain.args.filterIsInstance<CancellationSignal>().firstOrNull()
-                            if (!active() || callback == null || executor == null) return@intercept chain.proceed()
-                            val provider = chain.args.filterIsInstance<String>().firstOrNull() ?: "gps"
-                            executor.execute {
-                                if (cancellation?.isCanceled != true) {
-                                    // A stop between registration and execution must not leak a stale fake fix.
-                                    callback.accept(if (active()) LocationUtil.createFakeLocation(provider = provider) else null)
-                                    report("current-location callback delivered")
-                                }
-                            }
-                            null
+            isolateHook({ module.log(Log.WARN, TAG, "${method.name}: ${it.javaClass.simpleName}") }) {
+                if (method.name == "getCurrentLocation" && method.parameterTypes.contains(Consumer::class.java)) {
+                    module.hook(method).intercept { chain ->
+                        val index = chain.args.indexOfFirst { it is Consumer<*> }
+                        if (index < 0) return@intercept chain.proceed()
+                        @Suppress("UNCHECKED_CAST")
+                        val original = chain.args[index] as Consumer<Location?>
+                        val args = chain.args.toTypedArray()
+                        args[index] = Consumer<Location?> { fix ->
+                            original.accept(if (fix != null && active()) LocationUtil.createFakeLocation(fix) else fix)
                         }
-                        installed++
+                        chain.proceed(args)
                     }
-                    method.parameterTypes.contains(LocationListener::class.java) -> {
-                        module.hook(method).intercept { chain ->
-                            val index = chain.args.indexOfFirst { it is LocationListener }
-                            val listener = chain.args.getOrNull(index) as? LocationListener
-                                ?: return@intercept chain.proceed()
-                            // Public overloads delegate to one another; wrap only the outer call.
-                            if (listener is Registration) return@intercept chain.proceed()
-                            val args = chain.args.toTypedArray()
-                            if (method.name == "removeUpdates") {
-                                val registration = registry.get(listener) ?: return@intercept chain.proceed()
-                                args[index] = registration
-                                val result = chain.proceed(args)
-                                registration.retire()
-                                report("framework listener removed")
-                                result
-                            } else {
-                                val looper = chain.args.filterIsInstance<Looper>().firstOrNull()
-                                    ?: Looper.myLooper() ?: Looper.getMainLooper()
-                                val deliveryHandler = Handler(looper)
-                                val executor = chain.args.filterIsInstance<Executor>().firstOrNull()
-                                    ?: Executor { deliveryHandler.post(it) }
-                                // Reuse the proxy so LocationManager keeps its normal listener identity.
-                                val registration = registry.get(listener) ?: Registration(listener,
-                                    chain.args.filterIsInstance<String>().firstOrNull() ?: "gps",
-                                    executor, method.name == "requestSingleUpdate",
-                                    chain.thisObject as LocationManager)
-                                args[index] = registration
-                                val result = chain.proceed(args) // preserve permission checks and errors
-                                registry.put(listener, registration)
-                                report("framework listener registered")
-                                handler.post { if (!ticking) { ticking = true; handler.post(tick) } }
-                                result
-                            }
+                } else if (method.parameterTypes.contains(LocationListener::class.java)) {
+                    module.hook(method).intercept { chain ->
+                        synchronized(registrationLock) {
+                        val index = chain.args.indexOfFirst { it is LocationListener }
+                        val listener = chain.args.getOrNull(index) as? LocationListener ?: return@intercept chain.proceed()
+                        if (listener is Registration) return@intercept chain.proceed()
+                        if (method.name == "removeUpdates") {
+                            registrations.values.filter { it.key.listener === listener }.forEach { it.retire() }
+                            return@intercept chain.proceed()
                         }
-                        installed++
+                        val provider = chain.args.filterIsInstance<String>().firstOrNull() ?: return@intercept chain.proceed()
+                        val request = chain.args.firstOrNull { it?.javaClass?.name == "android.location.LocationRequest" }
+                        fun number(name: String, fallback: Long) = runCatching {
+                            (request?.javaClass?.getMethod(name)?.invoke(request) as? Number)?.toLong() ?: fallback
+                        }.getOrDefault(fallback)
+                        val interval = number("getIntervalMillis", chain.args.filterIsInstance<Long>().firstOrNull() ?: 1000L)
+                        if (provider == "passive" || interval == Long.MAX_VALUE) return@intercept chain.proceed()
+                        val maxUpdates = if (method.name == "requestSingleUpdate") 1 else number("getMaxUpdates", Int.MAX_VALUE.toLong()).toInt()
+                        val distance = runCatching {
+                            (request?.javaClass?.getMethod("getMinUpdateDistanceMeters")?.invoke(request) as? Number)?.toFloat()
+                        }.getOrNull() ?: chain.args.filterIsInstance<Float>().firstOrNull() ?: 0f
+                        val deliveryHandler = Handler(chain.args.filterIsInstance<Looper>().firstOrNull()
+                            ?: Looper.myLooper() ?: Looper.getMainLooper())
+                        val executor = chain.args.filterIsInstance<Executor>().firstOrNull() ?: Executor {
+                            check(deliveryHandler.post(it)) { "Delivery looper has stopped" }
+                        }
+                        val key = Key(listener, provider)
+                        val entry = Registration(key, executor, chain.thisObject as LocationManager,
+                            SystemDeliveryBudget(SystemClock.elapsedRealtime(), interval,
+                                number("getDurationMillis", Long.MAX_VALUE), maxUpdates), distance)
+                        val old = registrations.put(key, entry)
+                        val args = chain.args.toTypedArray().apply { this[index] = entry }
+                        try {
+                            val result = chain.proceed(args)
+                            old?.retire()
+                            handler.post { if (!ticking) { ticking = true; handler.post(tick) } }
+                            result
+                        } catch (error: Throwable) {
+                            if (old == null) registrations.remove(key, entry) else registrations.replace(key, entry, old)
+                            throw error
+                        }
+                        }
                     }
                 }
-            }.onFailure { module.log(Log.WARN, TAG, "Hook failed: ${method.name}: ${it.javaClass.simpleName}") }
+            }
         }
-        module.log(Log.INFO, TAG, "Installed $installed framework registration/current-location hooks")
     }
 
     private companion object { const val TAG = "[ActiveLocationHooks]" }

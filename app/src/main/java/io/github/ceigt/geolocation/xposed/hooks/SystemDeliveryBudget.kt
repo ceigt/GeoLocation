@@ -10,7 +10,15 @@ internal class SystemDeliveryBudget(
     private val interval = intervalMillis.coerceAtLeast(1000L)
     private var last: Long? = null
     private var delivered = 0
-    fun expired(now: Long): Boolean = delivered >= maxUpdates || now - started >= durationMillis
-    fun due(now: Long): Boolean = !expired(now) && (last == null || now - last!! >= interval)
-    fun sent(now: Long) { last = now; delivered++ }
+    @Synchronized fun expired(now: Long): Boolean = delivered >= maxUpdates || now - started >= durationMillis
+    @Synchronized fun due(now: Long): Boolean = !expired(now) && (last == null || now - last!! >= interval)
+    @Synchronized fun sent(now: Long) { last = now; if (delivered < Int.MAX_VALUE) delivered++ }
+    /** Reserve once at the outermost delivery boundary; native batches share this allowance. */
+    @Synchronized fun acquire(now: Long, count: Int, respectInterval: Boolean): Int {
+        if (count <= 0 || expired(now) || (respectInterval && !due(now))) return 0
+        val accepted = minOf(count, maxUpdates - delivered)
+        last = now
+        delivered += accepted
+        return accepted
+    }
 }

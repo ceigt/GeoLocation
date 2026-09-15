@@ -103,7 +103,7 @@
     <string name="setting_hide_toast_title">隐藏提示</string>
     <string name="setting_hide_toast_description">禁止在目标应用中显示 toast 提示</string>
     <string name="setting_external_broadcast_title">允许外部广播控制</string>
-    <string name="setting_external_broadcast_description">允许任何已安装的应用或 ADB shell 通过 intent 开始/停止模拟或设置坐标</string>
+    <string name="setting_external_broadcast_description">仅允许持有 CONTROL 签名权限、与 GeoLocation 同签名的应用控制模拟。普通第三方自动化应用和普通 ADB shell 不再支持。</string>
     <string name="location_mode_application_title">应用级 Hook</string>
     <string name="location_mode_application_description">需要 Root 和 LSPosed，仅对应用列表中选中的应用生效。适合大多数应用，资源占用和耗电量极低。</string>
     <string name="location_mode_system_title">系统级 Hook</string>
@@ -150,9 +150,9 @@
     <string name="menu_save_address">收藏地址</string>
     <string name="map_add_to_favorites">添加到收藏</string>
     <string name="map_clear_location">清除位置</string>
-    <string name="map_status_active">模拟中</string>
+    <string name="map_status_active">模拟请求已开启</string>
     <string name="map_status_stopped">已停止</string>
-    <string name="map_status_active_hint">已向选择的应用提供位置</string>
+    <string name="map_status_active_hint">配置已提交，实际定位结果请在目标应用中确认</string>
     <string name="map_status_waiting">从地图选择位置</string>
     <string name="map_status_hint">在地图上轻点，选择要模拟的位置。</string>
     <string name="map_status_coordinates">纬度 %1$.6f  经度 %2$.6f</string>

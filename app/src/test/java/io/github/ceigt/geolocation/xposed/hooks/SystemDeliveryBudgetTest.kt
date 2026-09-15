@@ -24,4 +24,20 @@ class SystemDeliveryBudgetTest {
         assertFalse(budget.expired(5049))
         assertTrue(budget.expired(5050))
     }
+    @org.junit.Test fun nativeBatchAndSupplementShareRemainingCount() {
+        val budget = SystemDeliveryBudget(0, 1000, 10000, 3)
+        org.junit.Assert.assertEquals(1, budget.acquire(0, 1, true))
+        org.junit.Assert.assertEquals(0, budget.acquire(500, 3, true))
+        org.junit.Assert.assertEquals(2, budget.acquire(1000, 5, true))
+        org.junit.Assert.assertEquals(0, budget.acquire(2000, 1, false))
+    }
+    @org.junit.Test fun concurrentSourcesCannotExceedSingleUpdate() {
+        val budget = SystemDeliveryBudget(0, 1000, 10000, 1)
+        val start = java.util.concurrent.CountDownLatch(1)
+        val accepted = java.util.concurrent.atomic.AtomicInteger()
+        val workers = (1..16).map { Thread { start.await(); accepted.addAndGet(budget.acquire(0, 1, true)) }.apply { start() } }
+        start.countDown()
+        workers.forEach { it.join(2000); org.junit.Assert.assertFalse(it.isAlive) }
+        org.junit.Assert.assertEquals(1, accepted.get())
+    }
 }

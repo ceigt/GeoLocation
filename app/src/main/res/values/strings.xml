@@ -103,7 +103,7 @@
     <string name="setting_hide_toast_title">Hide \'Fake location active\' toast</string>
     <string name="setting_hide_toast_description">Suppresses the toast shown when the module activates in a target app</string>
     <string name="setting_external_broadcast_title">Allow external broadcast control</string>
-    <string name="setting_external_broadcast_description">Off (default): blocks the BroadcastReceiver — no app or ADB shell can start/stop spoofing or set coordinates via intents. On: any installed app and \'adb shell am broadcast\' can drive the module (no permission check; coordinates are clamped to valid lat/lon ranges). Only enable this if you trust every app on the device or are running on a controlled (e.g., automation) device. See docs/EXTERNAL_CONTROL.md for actions and lock-down options.</string>
+    <string name="setting_external_broadcast_description">Only apps signed with the GeoLocation certificate and holding the CONTROL permission may control simulation. Ordinary third-party automation apps and ADB shell are no longer supported.</string>
     <string name="location_mode_application_title">App-level Hook</string>
     <string name="location_mode_application_description">Requires Root and LSPosed. Only affects apps selected in the app list. Suitable for most apps, with extremely low resource and battery usage.</string>
     <string name="location_mode_system_title">System-level Hook</string>
@@ -150,9 +150,9 @@
     <string name="menu_save_address">Save Address</string>
     <string name="map_add_to_favorites">Add to Favorites</string>
     <string name="map_clear_location">Clear Location</string>
-    <string name="map_status_active">Simulating</string>
+    <string name="map_status_active">Simulation requested</string>
     <string name="map_status_stopped">Stopped</string>
-    <string name="map_status_active_hint">Sharing this location with selected apps.</string>
+    <string name="map_status_active_hint">Configuration submitted; verify the location inside the target app.</string>
     <string name="map_status_waiting">Choose a point on the map</string>
     <string name="map_status_hint">Tap the map to choose a location to simulate.</string>
     <string name="map_status_coordinates">Lat %1$.6f  Lon %2$.6f</string>

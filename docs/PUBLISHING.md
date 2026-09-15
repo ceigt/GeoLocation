@@ -67,7 +67,7 @@ versionCode-versionName
 附件：GeoLocation-1.0.0-YYYYMMDD.apk
 ```
 
-APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本地 Release 会回退到 Android 调试证书，只适合安装测试，不应作为公开升级链路的正式发布包。
+APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本地 Release 保持未签名，不能作为可安装的正式发布包。
 
 ## GitHub Actions 自动构建
 
@@ -92,7 +92,7 @@ GEOLOCATION_GOOGLE_MAPS_API_KEY
 [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\geolocation-release.jks")) | Set-Clipboard
 ```
 
-创建 GitHub Release 后，在 Actions 中运行 “Build and attach release APK”，输入同一标签，例如 `10000-1.0.0`。工作流会校验标签与版本号映射、临时写入签名和地图密钥配置、构建并上传 APK；这些密钥不会写回仓库。
+创建 GitHub Release 草稿后，在 Actions 中运行 “Build and attach release APK”，输入同一标签，例如 `10000-1.0.0`。工作流会校验标签与版本号映射，执行单元测试、Release Lint、构建及正式签名指纹校验，然后上传到草稿。已经公开的 Release 和同名附件不会被覆盖。完成实机验证后再发布草稿。签名和地图配置只写入临时构建环境，不会写回仓库。
 
 ## 提交 LSPosed 模块仓库
 

@@ -1,6 +1,7 @@
 # === Android build artifacts ===
 /build/
 /app/build/
+/regression/build/
 /*.apk
 /*.aab
 *.ap_

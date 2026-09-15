@@ -21,3 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "GeoLocation"
 include(":app")
+
+include(":regression")

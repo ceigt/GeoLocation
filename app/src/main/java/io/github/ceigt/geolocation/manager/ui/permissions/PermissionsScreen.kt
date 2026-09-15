@@ -14,6 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import io.github.ceigt.geolocation.R
 import io.github.ceigt.geolocation.manager.ui.navigation.Screen
@@ -36,10 +39,10 @@ fun PermissionsScreen(navController: NavController, permissionsViewModel: Permis
     var automaticRequestStarted by rememberSaveable { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { granted ->
-            permissionsViewModel.updatePermissionsStatus(granted)
-            if (!granted) {
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { _ ->
+            permissionsViewModel.checkPermissions(context)
+            if (!permissionsViewModel.hasPermissions.value) {
                 permissionsViewModel.checkIfPermanentlyDenied(activity)
             }
         }
@@ -47,6 +50,15 @@ fun PermissionsScreen(navController: NavController, permissionsViewModel: Permis
 
     LaunchedEffect(Unit) {
         permissionsViewModel.checkPermissions(context)
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) permissionsViewModel.checkPermissions(context)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(permissionsChecked, hasPermissions, permanentlyDenied) {
@@ -58,7 +70,7 @@ fun PermissionsScreen(navController: NavController, permissionsViewModel: Permis
             }
         } else if (!permanentlyDenied && !automaticRequestStarted) {
             automaticRequestStarted = true
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
 
@@ -81,7 +93,7 @@ fun PermissionsScreen(navController: NavController, permissionsViewModel: Permis
                     PermanentlyDeniedScreen(context)
                 } else {
                     PermissionRequestScreen {
-                        permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                        permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
                     }
                 }
             }

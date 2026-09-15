@@ -12,6 +12,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import io.github.ceigt.geolocation.manager.mock.MockLocationService
+import io.github.ceigt.geolocation.manager.App
 
 /**
  * Sealed classes to represent different dialog states
@@ -46,6 +48,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private var reverseGeocodeJob: Job? = null
     private var mapActive = false
     private var mapQuotaDialogShownThisSession = false
+    private var pendingToggle = false
 
     /**
      * Represents field input state with value and validation error message
@@ -66,6 +69,9 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
      */
     data class MapUiState(
         val isPlaying: Boolean = false,
+        val isStarting: Boolean = false,
+        val mockFailed: Boolean = false,
+        val hookStatus: String? = null,
         val lastClickedLocation: GeoPoint? = null,
         val userLocation: GeoPoint? = null,
         val loadingState: LoadingState = LoadingState.Loading,
@@ -109,9 +115,31 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            combine(preferencesRepository.getIsPlayingFlow(), preferencesRepository.getEnableMockProviderFlow(),
+                preferencesRepository.getPendingHookSettingsFlow(), App.serviceState, App.syncError
+            ) { requested, mock, pending, service, failed ->
+                when {
+                    mock -> null
+                    failed -> "配置同步失败，正在自动重试"
+                    service == null && (requested || pending) -> "等待模块连接，配置尚未同步"
+                    pending -> "配置正在同步"
+                    requested -> "模拟请求已开启；目标应用定位尚未验证"
+                    else -> null
+                }
+            }.collectLatest { status -> _uiState.update { it.copy(hookStatus = status) } }
+        }
+        viewModelScope.launch {
             // Load initial isPlaying state
-            preferencesRepository.getIsPlayingFlow().collectLatest { isPlaying ->
-                _uiState.update { it.copy(isPlaying = isPlaying) }
+            combine(preferencesRepository.getIsPlayingFlow(),
+                preferencesRepository.getEnableMockProviderFlow(), MockLocationService.state,
+                App.serviceState, preferencesRepository.getPendingHookSettingsFlow()
+            ) { requested, mock, status, service, pending ->
+                val ready = if (mock) status == MockLocationService.Companion.RuntimeState.RUNNING
+                    else service != null && !pending
+                Triple(requested && ready, requested && !ready,
+                    mock && status == MockLocationService.Companion.RuntimeState.ERROR)
+            }.collectLatest { (playing, starting, failed) ->
+                _uiState.update { it.copy(isPlaying = playing, isStarting = starting, mockFailed = failed) }
             }
         }
 
@@ -136,11 +164,13 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlaying() {
-        val currentIsPlaying = !_uiState.value.isPlaying
-        _uiState.update { it.copy(isPlaying = currentIsPlaying) }
+        if (pendingToggle) return
+        pendingToggle = true
+        val currentIsPlaying = !preferencesRepository.getIsPlaying()
 
         viewModelScope.launch {
-            preferencesRepository.saveIsPlaying(currentIsPlaying)
+            try { preferencesRepository.saveIsPlaying(currentIsPlaying) }
+            finally { pendingToggle = false }
         }
     }
 
@@ -224,9 +254,11 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updatePlaceSearchQuery(query: String) {
+        activeSearchQuery = null
         _uiState.update {
             it.copy(
                 placeSearchQuery = query,
+                isPlaceSearchLoading = false,
                 placeSearchResults = emptyList(),
                 placeSearchErrorMessageRes = null
             )
@@ -234,6 +266,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearPlaceSearch() {
+        activeSearchQuery = null
         _uiState.update {
             it.copy(
                 placeSearchQuery = "",

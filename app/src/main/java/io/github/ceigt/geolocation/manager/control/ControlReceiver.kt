@@ -31,6 +31,8 @@ class ControlReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        val preferences = context.getSharedPreferences(io.github.ceigt.geolocation.data.SHARED_PREFS_FILE, Context.MODE_PRIVATE)
+        if (!preferences.getBoolean(io.github.ceigt.geolocation.data.KEY_ENABLE_BROADCAST_CONTROL, false)) return
         val action = intent.action ?: return
         val pendingResult = goAsync()
         val appContext = context.applicationContext
@@ -55,9 +57,8 @@ class ControlReceiver : BroadcastReceiver() {
     private suspend fun handleStart(intent: Intent, repository: PreferencesRepository) {
         if (intent.hasExtra(EXTRA_LATITUDE) && intent.hasExtra(EXTRA_LONGITUDE)) {
             val coords = parseCoordinates(intent)
-            if (coords != null) {
-                repository.saveLastClickedLocation(coords.first, coords.second)
-            }
+            if (coords == null) return
+            repository.saveLastClickedLocation(coords.first, coords.second)
         }
         repository.saveIsPlaying(true)
     }

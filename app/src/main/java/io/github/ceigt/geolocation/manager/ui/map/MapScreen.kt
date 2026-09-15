@@ -158,6 +158,9 @@ fun MapScreen(
             showSettingsSheet || uiState.showMapQuotaDialog || favoritePendingDeletion != null
     val fakeLocationSet = stringResource(R.string.toast_fake_location_set)
     val fakeLocationUnset = stringResource(R.string.toast_unset_fake_location)
+    LaunchedEffect(uiState.mockFailed) {
+        if (uiState.mockFailed) snackbarHostState.showSnackbar("模拟位置启动失败，请检查模拟位置应用授权和定位权限")
+    }
     val dismissSearch = {
         focusManager.clearFocus(force = true)
         mapViewModel.clearPlaceSearch()
@@ -270,16 +273,23 @@ fun MapScreen(
                     )
                 }
                 if (!hasMapModal) {
+                uiState.hookStatus?.let { status ->
+                    Text(status, modifier = Modifier.align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 154.dp)
+                        .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(8.dp))
+                        .padding(6.dp), fontSize = 12.sp, color = Color(0xFF334155))
+                }
                 MapPlayButton(
                     isPlaying = isPlaying,
+                    isStarting = uiState.isStarting,
                     enabled = isFabClickable,
                     onClick = {
                         dismissSearch()
-                        val wasPlaying = uiState.isPlaying
+                        val wasPlaying = uiState.isPlaying || uiState.isStarting
                         mapViewModel.togglePlaying()
-                        scope.launch {
+                        if (locationMode != LocationMode.MOCK_PROVIDER || wasPlaying) scope.launch {
                             snackbarHostState.showSnackbar(
-                                if (!wasPlaying) fakeLocationSet else fakeLocationUnset
+                                if (!wasPlaying) "已提交模拟请求，请以配置同步状态和目标应用实际结果为准" else fakeLocationUnset
                             )
                         }
                     },
@@ -1251,6 +1261,7 @@ private fun MapSearchPanel(
 @Composable
 private fun MapPlayButton(
     isPlaying: Boolean,
+    isStarting: Boolean = false,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1295,7 +1306,7 @@ private fun MapPlayButton(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isPlaying) "停止模拟" else "开始模拟",
+                text = if (isStarting) "等待就绪·取消" else if (isPlaying) "停止模拟" else "开始模拟",
                 style = MaterialTheme.typography.titleMedium,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,

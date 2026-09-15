@@ -31,10 +31,15 @@ import io.github.ceigt.geolocation.data.KEY_USE_ACCURACY
 import io.github.ceigt.geolocation.data.SHARED_PREFS_FILE
 import io.github.ceigt.geolocation.data.model.LastClickedLocation
 import java.util.concurrent.TimeUnit
+import io.github.ceigt.geolocation.manager.control.RootCommands
+import io.github.ceigt.geolocation.data.repository.PreferenceSync
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class MockLocationService : Service() {
-    private lateinit var handlerThread: HandlerThread
     private lateinit var handler: Handler
+    @Volatile private var destroyed = false
+    @Volatile private var latestStartId = 0
     private lateinit var locationManager: LocationManager
     private lateinit var powerManager: PowerManager
     private lateinit var preferences: SharedPreferences
@@ -47,14 +52,18 @@ class MockLocationService : Service() {
 
     private val tick = object : Runnable {
         override fun run() {
+            if (destroyed) return
+            val startId = latestStartId
             val state = currentState
             if (!state.canSpoof || state.location == null) {
                 stopMockProviders()
-                stopSelf()
+                stopSelf(startId)
                 return
             }
 
             if (pushMockLocation(state.location, state.accuracy)) {
+                if (destroyed || startId != latestStartId) return
+                runtimeState.value = RuntimeState.RUNNING
                 val interval = if (powerManager.isInteractive) {
                     FOREGROUND_UPDATE_INTERVAL_MS
                 } else {
@@ -62,15 +71,19 @@ class MockLocationService : Service() {
                 }
                 handler.postDelayed(this, interval)
             } else {
-                stopSelf()
+                android.os.Handler(mainLooper).post {
+                    if (!destroyed && startId == latestStartId) {
+                        recordFailure(this@MockLocationService)
+                        stopSelf(startId)
+                    }
+                }
             }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
-        handlerThread = HandlerThread("GeoLocationMockProvider").also { it.start() }
-        handler = Handler(handlerThread.looper)
+        handler = worker
         locationManager = getSystemService(LocationManager::class.java)
         powerManager = getSystemService(PowerManager::class.java)
         preferences = getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
@@ -80,18 +93,28 @@ class MockLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         when (intent?.action) {
             ACTION_STOP -> {
-                stopMockProviders()
-                stopSelf()
+                stopSelf(startId)
                 return START_NOT_STICKY
             }
             else -> {
-                startForeground(NOTIFICATION_ID, buildNotification())
+                try {
+                    startForeground(NOTIFICATION_ID, buildNotification())
+                } catch (error: Exception) {
+                    recordFailure(this)
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 currentState = readState(preferences)
                 handler.removeCallbacks(tick)
-                mockLocationRepairAttempted = false
-                handler.post(tick)
+                handler.post {
+                    if (!destroyed && latestStartId == startId) {
+                        mockLocationRepairAttempted = false
+                        tick.run()
+                    }
+                }
                 // Compatibility mode is explicitly enabled by the user and must keep feeding
                 // repeated location requests even if Android recreates this foreground service.
                 return START_STICKY
@@ -100,10 +123,12 @@ class MockLocationService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         handler.removeCallbacks(tick)
-        stopMockProviders()
+        // Provider mutations from successive service instances share one serial worker.
+        handler.post { stopMockProviders() }
         preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
-        handlerThread.quitSafely()
+        if (runtimeState.value != RuntimeState.ERROR) runtimeState.value = RuntimeState.STOPPED
         super.onDestroy()
     }
 
@@ -116,12 +141,14 @@ class MockLocationService : Service() {
         val location = prefs.getString(KEY_LAST_CLICKED_LOCATION, null)
             ?.takeIf { it.isNotBlank() }
             ?.let { runCatching { JsonCodec.decodeLocation(it) }.getOrNull() }
+            ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() &&
+                it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
 
         val accuracy = if (prefs.getBoolean(KEY_USE_ACCURACY, false)) {
             readDouble(prefs, KEY_ACCURACY, DEFAULT_ACCURACY).toFloat()
         } else {
             DEFAULT_ACCURACY.toFloat()
-        }.takeIf { it > 0f } ?: DEFAULT_MOCK_ACCURACY_METERS
+        }.takeIf { it.isFinite() && it > 0f } ?: DEFAULT_MOCK_ACCURACY_METERS
 
         return MockState(canSpoof = canSpoof, location = location, accuracy = accuracy)
     }
@@ -136,6 +163,7 @@ class MockLocationService : Service() {
     }
 
     private fun pushMockLocationOnce(location: LastClickedLocation, accuracy: Float): Boolean {
+        if (destroyed || !currentState.canSpoof) return false
         var pushed = false
         TARGET_PROVIDERS.forEach { provider ->
             val providerReady = ensureMockProvider(provider)
@@ -153,28 +181,7 @@ class MockLocationService : Service() {
 
     private fun repairMockLocationAppOp(): Boolean {
         mockLocationRepairAttempted = true
-        return runCatching {
-            val process = ProcessBuilder(
-                "su",
-                "-c",
-                "appops set $packageName android:mock_location allow"
-            ).redirectErrorStream(true).start()
-
-            if (!process.waitFor(ROOT_REPAIR_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                Log.w(TAG, "Timed out while requesting root mock-location repair")
-                false
-            } else if (process.exitValue() == 0) {
-                Log.i(TAG, "Repaired mock-location app-op using root")
-                true
-            } else {
-                Log.w(TAG, "Root mock-location repair failed with exit code ${process.exitValue()}")
-                false
-            }
-        }.getOrElse {
-            Log.w(TAG, "Root mock-location repair is unavailable: ${it.message}")
-            false
-        }
+        return !destroyed && RootCommands.enableMockLocation(packageName)
     }
 
     @Suppress("DEPRECATION")
@@ -275,6 +282,17 @@ class MockLocationService : Service() {
     )
 
     companion object {
+        enum class RuntimeState { STOPPED, STARTING, RUNNING, ERROR }
+        private val runtimeState = MutableStateFlow(RuntimeState.STOPPED)
+        val state = runtimeState.asStateFlow()
+        private val worker by lazy { Handler(HandlerThread("GeoLocationMockProvider").apply { start() }.looper) }
+
+        private fun recordFailure(context: Context) {
+            runtimeState.value = RuntimeState.ERROR
+            val prefs = context.getSharedPreferences(SHARED_PREFS_FILE, Context.MODE_PRIVATE)
+            PreferenceSync.edit(prefs, null) { putBoolean(KEY_IS_PLAYING, false) }
+            io.github.ceigt.geolocation.manager.App.requestSync()
+        }
         private const val TAG = "MockLocationService"
         private const val ACTION_START = "io.github.ceigt.geolocation.action.MOCK_PROVIDER_START"
         private const val ACTION_STOP = "io.github.ceigt.geolocation.action.MOCK_PROVIDER_STOP"
@@ -296,12 +314,15 @@ class MockLocationService : Service() {
             val appContext = context.applicationContext
             try {
                 if (enabled) {
+                    runtimeState.value = RuntimeState.STARTING
                     val intent = Intent(appContext, MockLocationService::class.java).setAction(ACTION_START)
                     ContextCompat.startForegroundService(appContext, intent)
                 } else {
+                    runtimeState.value = RuntimeState.STOPPED
                     appContext.stopService(Intent(appContext, MockLocationService::class.java))
                 }
             } catch (e: Exception) {
+                if (enabled) recordFailure(appContext)
                 Log.e(TAG, "Could not sync mock provider service: ${e.message}")
             }
         }

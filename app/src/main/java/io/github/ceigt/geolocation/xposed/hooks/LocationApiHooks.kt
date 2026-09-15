@@ -18,7 +18,6 @@ class LocationApiHooks(
     private val tencent = TencentLocationHooks(module, classLoader)
 
     fun initHooks() {
-        initialize("Location objects") { LocationObjectHooks(module, classLoader).initHooks() }
         initialize("Location manager") { LocationManagerHooks(module, classLoader).initHooks() }
         initialize("Active callbacks") { ActiveLocationHooks(module).initHooks() }
         initialize("Callback results") { LocationCallbackHooks(module, classLoader).initHooks() }
@@ -26,7 +25,7 @@ class LocationApiHooks(
         // Keep Wi-Fi scans, cell information and GNSS callback registration available. Tencent,
         // AMap and other vendor location SDKs use those sources to establish a fix before they
         // emit an Android Location. Clearing the sources here can suppress location callbacks
-        // entirely. Location payload and mock-origin hooks below still replace the reported fix.
+        // entirely. Only request/callback boundaries replace reported location payloads.
         module.log(Log.INFO, tag, "Hook setup finished; callback delivery requires runtime verification")
     }
 

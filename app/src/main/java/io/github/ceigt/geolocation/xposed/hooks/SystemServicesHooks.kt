@@ -27,7 +27,8 @@ internal fun selectSystemTargetPackage(
     fun isThirdParty(packageName: String): Boolean =
         packageName != "android" &&
             packageName != "system" &&
-            packageName != "com.android.phone" &&
+        packageName != "com.android.phone" &&
+            packageName != io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME &&
             !packageName.startsWith("android.") &&
             !packageName.startsWith("com.android.")
 
@@ -60,6 +61,7 @@ class SystemServicesHooks(
     }
 
     fun initHooks() {
+        initialize("Raw GNSS callbacks") { SystemRawLocationGuard(module, classLoader).initHooks() }
         initialize("System active callbacks") { activeLocationHooks.initHooks() }
         initialize("Last location") { hookLastLocation(classLoader) }
         initialize("Current location") { hookCurrentLocation(classLoader) }
@@ -101,12 +103,16 @@ class SystemServicesHooks(
         ) ?: return
 
         hookAll(serviceClass, "getLastLocation") { chain ->
+            val uid = Binder.getCallingUid()
+            val pid = Binder.getCallingPid()
             val result = chain.proceed()
             val targetPackage = targetPackageFrom(chain.args)
-            if (targetPackage != null) {
-                val original = result as? Location
+            if (targetPackage != null && result is Location) {
+                val original = result
                 reportOnce("Replaced getLastLocation for $targetPackage")
-                LocationUtil.createFakeLocation(original, targetPackage = targetPackage)
+                val service = chain.thisObject ?: return@hookAll null
+                SystemLocationPrivacy.replace(service, uid, pid, chain.args.firstOrNull() as? String ?: original.provider.orEmpty(),
+                    original, targetPackage) { reportOnce("Last-location privacy adapter unavailable: ${it.javaClass.simpleName}") }
             } else {
                 result
             }
@@ -367,9 +373,9 @@ class SystemServicesHooks(
                 // list here breaks unmarshalling in clients and is commonly surfaced as a generic
                 // "location service disabled" error. Keep the service available while withholding
                 // network identifiers, so the SDK can only use the synthetic GNSS fix.
-                wrapParceledList(result, emptyList())?.also {
+                (if (result is List<*>) emptyList<Any>() else wrapParceledList(result, emptyList()))?.also {
                     reportOnce("Empty Wi-Fi scan supplied for $targetPackage")
-                } ?: result
+                }
             } else {
                 result
             }

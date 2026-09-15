@@ -22,9 +22,11 @@ jobs:
 
       - name: Validate release tag
         id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         shell: bash
         run: |
-          tag='${{ inputs.release_tag }}'
+          tag="$RELEASE_TAG"
           if [[ ! "$tag" =~ ^([0-9]+)-([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Tag must use versionCode-versionName, for example 10000-1.0.0."
             exit 1
@@ -78,22 +80,48 @@ jobs:
             "$BAIDU_WEB_AK" "$AMAP_WEB_KEY" "$AMAP_SECURITY_CODE" "$GOOGLE_MAPS_API_KEY" \
             > local.properties
 
-      - name: Build release APK
-        run: ./gradlew --no-daemon :app:assembleRelease -PappVersionName="${{ steps.version.outputs.version }}"
+      - name: Test, lint and build release APK
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease :regression:assembleDebug :regression:assembleDebugAndroidTest
 
       - name: Locate APK
         id: apk
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           shopt -s nullglob
-          files=(app/build/outputs/apk/release/GeoLocation-${{ steps.version.outputs.version }}-*.apk)
+          files=(app/build/outputs/apk/release/GeoLocation-"$APP_VERSION_NAME"-*.apk)
           if [[ "${#files[@]}" -ne 1 ]]; then
             echo "::error::Expected exactly one versioned release APK, found ${#files[@]}."
             exit 1
           fi
           echo "path=${files[0]}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK to existing release
+      - name: Verify release signature and build type
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          EXPECTED_CERT: 26ffd7b501c54b76a7a39495105cf0f8e596a56f9fca88ec2111f230e19fb5f7
+        shell: bash
+        run: |
+          verification=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK_PATH")
+          actual=$(printf '%s\n' "$verification" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$actual" = "$EXPECTED_CERT" || { echo '::error::Unexpected signing certificate'; exit 1; }
+          badging=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK_PATH")
+          if grep -q 'application-debuggable' <<< "$badging"; then
+            echo '::error::Debuggable APK cannot be released'; exit 1
+          fi
+          sha256sum "$APK_PATH"
+
+      - name: Upload APK to draft release without replacing existing assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.release_tag }}" "${{ steps.apk.outputs.path }}" --clobber
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        shell: bash
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true || {
+            echo '::error::Only a draft release may receive a new build'; exit 1;
+          }
+          gh release upload "$RELEASE_TAG" "$APK_PATH"

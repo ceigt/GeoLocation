@@ -46,26 +46,34 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
 
     private val tag = "[SystemActiveLocation]"
     private val handler by lazy { Handler(HandlerThread("GeoLocationSystemCallbacks").apply { start() }.looper) }
-    private val registrations = HashMap<IBinder, Registration>() // accessed only on handler
+    private data class Key(val token: IBinder, val provider: String)
+    private val registrationLock = Any()
+    private val registrations = HashMap<Key, Registration>() // accessed only on handler
     private var previousActive = false
     private var announced = false
     private val providers = setOf("gps", "network", "fused", "passive")
-    private val guarded = ConcurrentHashMap<IBinder, Registration>()
-    private val guardedCurrent = ConcurrentHashMap<IBinder, String>()
+    private val guarded = ConcurrentHashMap<Key, Registration>()
+    private class CurrentRequest(val service: Any, val uid: Int, val pid: Int, val provider: String, val packageName: String)
+    private val guardedCurrent = ConcurrentHashMap<IBinder, CurrentRequest>()
     private val guardedClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val nativeGuardReported = ConcurrentHashMap.newKeySet<String>()
     private val statusQueryReported = ConcurrentHashMap.newKeySet<String>()
     private val settingsQueryReported = ConcurrentHashMap.newKeySet<String>()
     private val settingsProviderClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val syntheticDispatch = ThreadLocal<Boolean>()
+    private val nativeSource = ThreadLocal<Registration>()
 
     private inner class Registration(
         val listener: IInterface, val context: Context, val service: Any,
         val uid: Int, val pid: Int, val packageName: String, val provider: String,
-        val callback: Method, val budget: SystemDeliveryBudget, val gnss: Boolean = false
+        val callback: Method, val budget: SystemDeliveryBudget, val gnss: Boolean = false,
+        minimumDistance: Float = 0f
     ) {
+        val delivery = LocationDeliveryPolicy<android.location.Location>(budget, minimumDistance) { a, b -> a.distanceTo(b) }
         val token: IBinder = listener.asBinder()
-        val death = IBinder.DeathRecipient { handler.post { remove(token, this) } }
+        val key = Key(token, if (gnss) "_gnss" else provider)
+        val death = IBinder.DeathRecipient { handler.post { remove(key, this) } }
+        var cleanupAfter = 0L
         var enabledNotified = false
         var diagnosticState: String? = null
         var diagnosticCount = 0
@@ -75,13 +83,37 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         }?.apply { isAccessible = true }
     }
 
+    /** Keep the native Binder token while retaining exact provider/generation provenance. */
+    private inner class ProviderListenerHandler(val entry: Registration) : java.lang.reflect.InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
+            val previous = nativeSource.get()
+            nativeSource.set(entry)
+            try {
+                return method.invoke(entry.listener, *(args ?: emptyArray()))
+            } catch (error: java.lang.reflect.InvocationTargetException) {
+                throw error.targetException
+            } finally {
+                if (previous == null) nativeSource.remove() else nativeSource.set(previous)
+            }
+        }
+    }
+
+    private fun sourceOf(listener: IInterface?): Registration? {
+        if (listener != null && java.lang.reflect.Proxy.isProxyClass(listener.javaClass)) {
+            val source = java.lang.reflect.Proxy.getInvocationHandler(listener) as? ProviderListenerHandler
+            if (source != null) return source.entry
+        }
+        return nativeSource.get()
+    }
+
     private fun active(): Boolean = PreferencesUtil.snapshot().let { it.isPlaying && it.enableSystemHooks }
 
     fun initHooks() {
         if (Build.VERSION.SDK_INT < 31) return
-        installNativeLocationGuard()
-        installNativeCurrentLocationGuard()
-        installNativeTransportGuards()
+        isolateHook(::reportFailure) { installNativeLocationGuard() }
+        isolateHook(::reportFailure) { installNativeCurrentLocationGuard() }
+        isolateHook(::reportFailure) { installNativeListenerTransportGuard() }
+        isolateHook(::reportFailure) { installNativeCurrentTransportGuard() }
         val serviceClass = Class.forName("com.android.server.location.LocationManagerService", false, loader)
         for (name in listOf("isLocationEnabledForUser", "isProviderEnabledForUser")) {
             serviceClass.declaredMethods.filter { it.name == name && it.returnType == Boolean::class.javaPrimitiveType }
@@ -104,9 +136,11 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         serviceClass.declaredMethods.filter { it.name == "registerLocationListener" }.forEach { method ->
             isolateHook(::reportFailure) {
                 module.hook(method).intercept { chain ->
+                    synchronized(registrationLock) {
                     val uid = Binder.getCallingUid()
                     val pid = Binder.getCallingPid()
                     var prepared: Registration? = null
+                    var previous: Registration? = null
                     // Do not capture system or manager registrations. Track application registrations
                     // even while paused, so a later start does not require a new native registration.
                     isolateHook(::reportFailure) {
@@ -134,9 +168,11 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                                     val entry = Registration(listener, context, service, uid, pid, validPackage,
                                         provider!!, callback, SystemDeliveryBudget(SystemClock.elapsedRealtime(), interval,
                                             number(request, "getDurationMillis", Long.MAX_VALUE),
-                                            number(request, "getMaxUpdates", Int.MAX_VALUE.toLong()).toInt()))
+                                            number(request, "getMaxUpdates", Int.MAX_VALUE.toLong()).toInt()),
+                                        minimumDistance = (request?.javaClass?.getMethod("getMinUpdateDistanceMeters")
+                                            ?.invoke(request) as? Number)?.toFloat() ?: 0f)
                                     installAvailabilityGuard(entry)
-                                    guarded[entry.token] = entry
+                                    previous = guarded.put(entry.key, entry)
                                     prepared = entry
                                 }
                             }
@@ -144,12 +180,23 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     }
                     // Native registration still validates identity, permissions and request limits.
                     try {
-                        val result = chain.proceed()
+                        val args = chain.args.toTypedArray()
+                        prepared?.let { entry ->
+                            val index = args.indexOfFirst { it === entry.listener }
+                            val listenerType = Class.forName("android.location.ILocationListener", false, loader)
+                            args[index] = java.lang.reflect.Proxy.newProxyInstance(listenerType.classLoader,
+                                arrayOf(listenerType), ProviderListenerHandler(entry))
+                        }
+                        val result = chain.proceed(args)
                         prepared?.let { entry -> handler.post { add(entry) } }
                         result
                     } catch (error: Throwable) {
-                        prepared?.let { guarded.remove(it.token, it) }
+                        prepared?.let { entry ->
+                            val old = previous
+                            if (old == null) guarded.remove(entry.key, entry) else guarded.replace(entry.key, entry, old)
+                        }
                         throw error
+                    }
                     }
                 }
             }
@@ -157,6 +204,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         serviceClass.declaredMethods.filter { it.name == "registerGnssStatusCallback" }.forEach { method ->
             isolateHook(::reportFailure) {
                 module.hook(method).intercept { chain ->
+                    synchronized(registrationLock) {
                     val uid = Binder.getCallingUid()
                     val pid = Binder.getCallingPid()
                     val result = chain.proceed() // native identity and permission validation first
@@ -172,11 +220,12 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         if (result != false) {
                             val entry = Registration(listener, context, service, uid, pid, pkg, "gps",
                                 callback, SystemDeliveryBudget(SystemClock.elapsedRealtime(), 1000L, Long.MAX_VALUE, Int.MAX_VALUE), true)
-                            guarded[entry.token] = entry
+                            guarded[entry.key] = entry
                             handler.post { add(entry) }
                         }
                     }
                     result
+                    }
                 }
             }
         }
@@ -192,17 +241,19 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         it.asBinder().interfaceDescriptor == "android.location.ILocationCallback"
                     }
                     val token = callback?.asBinder()
-                    if (packageName != null && token != null) {
-                        guardedCurrent[token] = packageName
+                    val current = if (packageName != null && service != null) CurrentRequest(service, uid,
+                        Binder.getCallingPid(), chain.args.firstOrNull() as? String ?: "fused", packageName) else null
+                    if (current != null && token != null) {
+                        guardedCurrent[token] = current
                         // A cancelled or timed-out one-shot request may never invoke its Binder
                         // callback. Bound the tracking entry so repeated requests cannot retain
                         // callback binders for the lifetime of system_server.
-                        handler.postDelayed({ guardedCurrent.remove(token, packageName) }, CURRENT_CALLBACK_TTL_MS)
+                        handler.postDelayed({ guardedCurrent.remove(token, current) }, CURRENT_CALLBACK_TTL_MS)
                     }
                     try {
                         chain.proceed()
                     } catch (error: Throwable) {
-                        if (token != null && packageName != null) guardedCurrent.remove(token, packageName)
+                        if (token != null && current != null) guardedCurrent.remove(token, current)
                         throw error
                     }
                 }
@@ -211,13 +262,17 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         serviceClass.declaredMethods.filter { it.name in setOf("unregisterLocationListener", "unregisterGnssStatusCallback") }.forEach { method ->
             isolateHook(::reportFailure) {
                 module.hook(method).intercept { chain ->
+                    synchronized(registrationLock) {
                     val token = chain.args.filterIsInstance<IInterface>().firstOrNull()?.asBinder()
                     val result = chain.proceed()
                     if (token != null) {
-                        val removed = guarded.remove(token)
-                        if (removed != null) handler.post { remove(token, removed) }
+                        guarded.values.filter { it.token == token }.forEach { entry ->
+                            guarded.remove(entry.key, entry)
+                            handler.post { remove(entry.key, entry) }
+                        }
                     }
                     result
+                    }
                 }
             }
         }
@@ -266,8 +321,8 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         try {
             module.hook(method).intercept { chain ->
                 val token = (chain.thisObject as? IInterface)?.asBinder()
-                val tracked = token?.let(guarded::get)
-                if (tracked != null && active() && chain.args.firstOrNull() in providers && chain.args.getOrNull(1) == false) {
+                val tracked = sourceOf(chain.thisObject as? IInterface) ?: token?.let { findRegistration(it) }
+                if (tracked != null && guarded[tracked.key] === tracked && active() && chain.args.firstOrNull() in providers && chain.args.getOrNull(1) == false) {
                     val args = chain.args.toTypedArray()
                     args[1] = true
                     chain.proceed(args)
@@ -285,6 +340,30 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
      * method directly: reflection through an ILocationListener instance may return
      * the interface Method, which does not execute when the Proxy overrides it.
      */
+    private fun findRegistration(token: IBinder): Registration? {
+        val entries = guarded.values.filter { it.token == token && !it.gnss }
+        return entries.singleOrNull()
+    }
+
+    private fun acceptNative(entry: Registration, locations: List<android.location.Location>): List<android.location.Location> =
+        synchronized(entry) {
+            if (guarded[entry.key] !== entry) return@synchronized emptyList()
+            val playing = active()
+            val candidates = if (!playing) locations else locations.mapNotNull { location ->
+                SystemLocationPrivacy.replace(entry.service, entry.uid, entry.pid, entry.provider,
+                    location, entry.packageName, ::reportFailure)
+            }
+            entry.delivery.accept(SystemClock.elapsedRealtime(), candidates, playing)
+        }
+
+    private fun completeSuppressed(callback: Any?) {
+        if (callback == null) return
+        isolateHook(::reportFailure) {
+            if (callback is Runnable) callback.run()
+            else callback.javaClass.getMethod("sendResult", Bundle::class.java).apply { isAccessible = true }.invoke(callback, null)
+        }
+    }
+
     private fun installNativeLocationGuard() {
         val proxyClass = Class.forName("android.location.ILocationListener\$Stub\$Proxy", false, loader)
         val method = proxyClass.declaredMethods.single { candidate ->
@@ -293,27 +372,19 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                 candidate.parameterTypes[1].name == "android.os.IRemoteCallback"
         }.apply { isAccessible = true }
         module.hook(method).intercept { chain ->
+            if (syntheticDispatch.get() == true) return@intercept chain.proceed()
             val token = (chain.thisObject as? IInterface)?.asBinder()
-            val tracked = token?.let(guarded::get)
-            if (tracked == null || !active() || syntheticDispatch.get() == true) {
-                chain.proceed()
-            } else {
-                val original = chain.args.firstOrNull() as? List<*>
-                if (original == null || original.none { it is android.location.Location }) {
-                    chain.proceed()
-                } else {
-                    val args = chain.args.toTypedArray()
-                    args[0] = original.map { location ->
-                        if (location is android.location.Location) {
-                            LocationUtil.createFakeLocation(location, targetPackage = tracked.packageName)
-                        } else location
-                    }
-                    if (nativeGuardReported.add(tracked.packageName)) {
-                        module.log(Log.INFO, tag, "Native listener payload replaced: ${tracked.packageName}")
-                    }
-                    chain.proceed(args)
-                }
+            val original = (chain.args.firstOrNull() as? List<*>)?.filterIsInstance<android.location.Location>()
+            val tracked = sourceOf(chain.thisObject as? IInterface) ?: token?.let { findRegistration(it) }
+            if (tracked == null || original.isNullOrEmpty()) return@intercept chain.proceed()
+            val accepted = acceptNative(tracked, original)
+            if (accepted.isEmpty()) {
+                completeSuppressed(chain.args.getOrNull(1))
+                return@intercept null
             }
+            val args = chain.args.toTypedArray()
+            args[0] = accepted
+            chain.proceed(args)
         }
         module.log(Log.INFO, tag, "Native ILocationListener Binder guard installed")
     }
@@ -328,15 +399,14 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         }.apply { isAccessible = true }
         module.hook(method).intercept { chain ->
             val token = (chain.thisObject as? IInterface)?.asBinder()
-            val packageName = token?.let(guardedCurrent::remove)
-            if (packageName == null || !active()) {
+            val current = token?.let(guardedCurrent::remove)
+            val packageName = current?.packageName
+            if (packageName == null || !active() || chain.args.firstOrNull() == null) {
                 chain.proceed()
             } else {
                 val args = chain.args.toTypedArray()
-                args[0] = LocationUtil.createFakeLocation(
-                    chain.args.firstOrNull() as? android.location.Location,
-                    targetPackage = packageName
-                )
+                args[0] = SystemLocationPrivacy.replace(checkNotNull(current).service, current.uid, current.pid,
+                    current.provider, chain.args.first() as android.location.Location, packageName, ::reportFailure)
                 if (nativeGuardReported.add("$packageName/current")) {
                     module.log(Log.INFO, tag, "Native current-location payload replaced: $packageName")
                 }
@@ -351,7 +421,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
      * the common path used by framework clients even when the generated Binder Proxy
      * method is inlined or bypassed by the runtime.
      */
-    private fun installNativeTransportGuards() {
+    private fun installNativeListenerTransportGuard() {
         val listenerTransport = Class.forName(
             "com.android.server.location.provider.LocationProviderManager\$LocationListenerTransport",
             false,
@@ -361,26 +431,34 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             module.hook(method).intercept { chain ->
                 val listener = listenerTransport.getDeclaredField("mListener").apply { isAccessible = true }
                     .get(chain.thisObject) as? IInterface
-                val tracked = listener?.asBinder()?.let(guarded::get)
-                val original = chain.args.firstOrNull()
-                if (tracked == null || !active() || original == null) {
-                    chain.proceed()
-                } else {
-                    val replacement = copyLocationResult(original, tracked.packageName)
-                    if (replacement == null) {
-                        chain.proceed()
-                    } else {
-                        val args = chain.args.toTypedArray()
-                        args[0] = replacement
-                        if (nativeGuardReported.add("${tracked.packageName}/transport")) {
-                            module.log(Log.INFO, tag, "Native transport payload replaced: ${tracked.packageName}")
-                        }
-                        chain.proceed(args)
-                    }
+                if (syntheticDispatch.get() == true) return@intercept chain.proceed()
+                val original = chain.args.firstOrNull() ?: return@intercept chain.proceed()
+                val locations = runCatching { original.javaClass.getMethod("asList").invoke(original) as? List<*> }
+                    .getOrNull()?.filterIsInstance<android.location.Location>() ?: return@intercept chain.proceed()
+                val tracked = sourceOf(listener) ?: listener?.asBinder()?.let { findRegistration(it) }
+                    ?: return@intercept chain.proceed()
+                val accepted = acceptNative(tracked, locations)
+                if (accepted.isEmpty()) {
+                    completeSuppressed(chain.args.getOrNull(1))
+                    return@intercept null
                 }
+                val replacement = runCatching {
+                    original.javaClass.getMethod("create", List::class.java).invoke(null, accepted)
+                }.getOrElse { error ->
+                    reportFailure(error)
+                    completeSuppressed(chain.args.getOrNull(1))
+                    return@intercept null
+                }
+                val args = chain.args.toTypedArray()
+                args[0] = replacement
+                syntheticDispatch.set(true)
+                try { chain.proceed(args) } finally { syntheticDispatch.remove() }
             }
         }
 
+    }
+
+    private fun installNativeCurrentTransportGuard() {
         val currentTransport = Class.forName(
             "com.android.server.location.provider.LocationProviderManager\$GetCurrentLocationTransport",
             false,
@@ -391,14 +469,17 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                 val callback = currentTransport.getDeclaredField("mCallback").apply { isAccessible = true }
                     .get(chain.thisObject) as? IInterface
                 val token = callback?.asBinder()
-                val packageName = token?.let(guardedCurrent::get)
+                val current = token?.let(guardedCurrent::get)
+                val packageName = current?.packageName
                 val original = chain.args.firstOrNull()
                 if (packageName == null || !active() || original == null) {
                     chain.proceed()
                 } else {
-                    val replacement = copyLocationResult(original, packageName)
+                    val replacement = copyLocationResult(original, checkNotNull(current))
                     if (replacement == null) {
-                        chain.proceed()
+                        val args = chain.args.toTypedArray()
+                        args[0] = null
+                        chain.proceed(args)
                     } else {
                         val args = chain.args.toTypedArray()
                         args[0] = replacement
@@ -413,24 +494,28 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         module.log(Log.INFO, tag, "Android 15 location transport guards installed")
     }
 
-    private fun copyLocationResult(value: Any, packageName: String): Any? = runCatching {
+    private fun copyLocationResult(value: Any, current: CurrentRequest): Any? = runCatching {
         if (value.javaClass.name != "android.location.LocationResult") return@runCatching null
         val locations = value.javaClass.getMethod("asList").invoke(value) as? List<*> ?: return@runCatching null
         val replacements = locations.map { location ->
-            LocationUtil.createFakeLocation(location as android.location.Location, targetPackage = packageName)
+            SystemLocationPrivacy.replace(current.service, current.uid, current.pid, current.provider,
+                location as android.location.Location, current.packageName, ::reportFailure) ?: return@runCatching null
         }
         value.javaClass.getMethod("create", List::class.java).invoke(null, replacements)
     }.onFailure(::reportFailure).getOrNull()
 
     private fun add(entry: Registration) {
-        remove(entry.token)
-        isolateHook({ guarded.remove(entry.token, entry); reportFailure(it) }) {
+        registrations[entry.key]?.takeIf { it !== entry }?.let { old ->
+            runCatching { old.token.unlinkToDeath(old.death, 0) }
+            registrations.remove(entry.key)
+        }
+        isolateHook({ guarded.remove(entry.key, entry); reportFailure(it) }) {
             entry.token.linkToDeath(entry.death, 0)
-            if (guarded[entry.token] !== entry) {
+            if (guarded[entry.key] !== entry) {
                 entry.token.unlinkToDeath(entry.death, 0)
                 return@isolateHook
             }
-            registrations[entry.token] = entry
+            registrations[entry.key] = entry
             if (LOG_DELIVERY_DIAGNOSTICS) {
                 module.log(Log.INFO, tag, "Listener retained: ${entry.packageName}/${entry.provider}")
             }
@@ -438,12 +523,31 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         }
     }
 
-    private fun remove(token: IBinder, expected: Registration? = null) {
-        val entry = registrations[token] ?: return
+    private fun remove(key: Key, expected: Registration? = null) {
+        val entry = guarded[key] ?: registrations[key] ?: return
         if (expected != null && entry !== expected) return
-        registrations.remove(token)
-        guarded.remove(token, entry)
-        runCatching { token.unlinkToDeath(entry.death, 0) }
+        registrations.remove(key)
+        guarded.remove(key, entry)
+        runCatching { entry.token.unlinkToDeath(entry.death, 0) }
+    }
+
+    private fun finishNativeRequest(entry: Registration, now: Long) = synchronized(registrationLock) {
+        if (guarded[entry.key] !== entry || entry.gnss) return@synchronized
+        try {
+            val lookup = entry.service.javaClass.getDeclaredMethod("getLocationProviderManager", String::class.java)
+                .apply { isAccessible = true }
+            val manager = lookup.invoke(entry.service, entry.provider)
+            if (manager != null) {
+                val unregister = manager.javaClass.methods.first { it.name == "unregisterLocationRequest" &&
+                    it.parameterTypes.size == 1 && it.parameterTypes[0].isInstance(entry.listener) }
+                unregister.invoke(manager, entry.listener)
+            }
+            remove(entry.key, entry)
+        } catch (error: Exception) {
+            // Retain the guard rather than reviving an exhausted native request on an unknown ROM.
+            entry.cleanupAfter = now + 60_000L
+            reportFailure(error)
+        }
     }
 
     private val tick = object : Runnable {
@@ -470,8 +574,10 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         }
                         entry.enabledNotified = false
                     }
-                    if (!entry.token.isBinderAlive || entry.budget.expired(now)) {
-                        remove(entry.token, entry)
+                    if (!entry.token.isBinderAlive) {
+                        remove(entry.key, entry)
+                    } else if (entry.budget.expired(now) && now >= entry.cleanupAfter) {
+                        finishNativeRequest(entry, now)
                     } else if (playing && entry.budget.due(now)) {
                         deliver(entry, now)
                     }
@@ -481,9 +587,9 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         }
     }
 
-    private fun deliver(entry: Registration, now: Long) {
-        if (!active() || !entry.budget.due(now) || guarded[entry.token] !== entry) return
-        isolateHook({ remove(entry.token, entry); reportFailure(it) }) {
+    private fun deliver(entry: Registration, now: Long) = synchronized(entry) {
+        if (!active() || !entry.budget.due(now) || guarded[entry.key] !== entry) return@synchronized
+        isolateHook({ remove(entry.key, entry); reportFailure(it) }) {
             // This call runs on our own thread with system identity, so the external
             // query adapter above leaves the actual switch value unchanged.
             val realEnabled = realLocationEnabled(entry)
@@ -493,6 +599,11 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             // waiting for a native fix in that state leaves indoor/vendor clients spinning.
             // Native callbacks remain protected by the transport and Binder guards above.
             if (mayDeliver(entry) && active()) {
+                val location = if (entry.gnss) null else LocationUtil.createFakeLocation(
+                    provider = if (entry.provider == "passive") "gps" else entry.provider, targetPackage = entry.packageName)
+                val accepted = if (entry.gnss) entry.budget.acquire(now, 1, true) == 1
+                    else entry.delivery.accept(now, listOf(checkNotNull(location)), true).isNotEmpty()
+                if (!accepted) return@isolateHook
                 if (!entry.enabledNotified) {
                     if (entry.gnss) {
                         gnssEvent(entry, "onGnssStarted")
@@ -504,7 +615,6 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                 if (entry.gnss) {
                     entry.callback.invoke(entry.listener, simulatedGnssStatus())
                 } else {
-                    val location = LocationUtil.createFakeLocation(provider = if (entry.provider == "passive") "gps" else entry.provider, targetPackage = entry.packageName)
                     syntheticDispatch.set(true)
                     try {
                         entry.callback.invoke(entry.listener, listOf(location), null)
@@ -513,7 +623,6 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     }
                 }
                 diagnostic(entry, if (entry.gnss) "satellite-status-sent" else "callback-sent")
-                entry.budget.sent(now)
                 if (!announced) {
                     announced = true
                     module.log(Log.INFO, tag, "Supplemental system callback sent")
@@ -524,15 +633,21 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
 
     private fun mayDeliver(entry: Registration): Boolean {
         val context = entry.context
+        val user = UserHandle.getUserHandleForUid(entry.uid)
+        val users = context.getSystemService(UserManager::class.java) ?: return false
+        if (users.isQuietModeEnabled(user)) return false
+        val unlocked = UserManager::class.java.getMethod("isUserUnlocked", UserHandle::class.java)
+            .invoke(users, user) as Boolean
+        if (!unlocked) return false
         // Coarse-only clients remain on the native path; do not upgrade their permission.
         if (context.checkPermission(Manifest.permission.ACCESS_FINE_LOCATION, entry.pid, entry.uid) != PackageManager.PERMISSION_GRANTED) {
             diagnostic(entry, "fine-permission-denied")
             return false
         }
         val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
-        val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_FINE_LOCATION, entry.uid, entry.packageName)
+        val mode = appOps.noteOpNoThrow(AppOpsManager.OPSTR_FINE_LOCATION, entry.uid, entry.packageName)
         val foreground = context.getSystemService(ActivityManager::class.java)?.runningAppProcesses
-            ?.any { it.uid == entry.uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE } == true
+            ?.any { it.uid == entry.uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND } == true
         if (!foreground && context.checkPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION, entry.pid, entry.uid) != PackageManager.PERMISSION_GRANTED) {
             diagnostic(entry, "background-permission-denied; appOp=$mode")
             return false
@@ -540,8 +655,9 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         // Android applies a location-switch restriction to evaluated AppOps, including
         // checkOpRaw. For synthetic callbacks only, query stored authorization instead.
         // Never mutate AppOps or the real provider's restrictions.
-        val allowed = if (mode == AppOpsManager.MODE_ALLOWED || (mode == AppOpsManager.MODE_FOREGROUND && foreground)) true
-            else !realLocationEnabled(entry) && storedAuthorization(entry, appOps, foreground)
+        val savedAllowed = storedAuthorization(entry, appOps, foreground)
+        val allowed = savedAllowed && (mode == AppOpsManager.MODE_ALLOWED ||
+            (mode == AppOpsManager.MODE_FOREGROUND && foreground) || !realLocationEnabled(entry))
         if (!allowed) diagnostic(entry, "appOp-denied=$mode; foreground=$foreground")
         return allowed
     }

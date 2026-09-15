@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 
 /** One-shot messages surfaced to the settings UI. */
 sealed interface SystemHooksEvent {
+    data object UnsupportedSystemVersion : SystemHooksEvent
     data object ModuleNotActive : SystemHooksEvent
     data object TargetAppScopeRequired : SystemHooksEvent
     data class ScopeSetupRequired(val missingPackages: List<String>) : SystemHooksEvent
@@ -412,6 +413,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun enableSystemHooks() {
+        if (android.os.Build.VERSION.SDK_INT < 31) {
+            _systemHooksEvents.tryEmit(SystemHooksEvent.UnsupportedSystemVersion)
+            return
+        }
         val service = App.service
         if (service == null) {
             _systemHooksEvents.tryEmit(SystemHooksEvent.ModuleNotActive)

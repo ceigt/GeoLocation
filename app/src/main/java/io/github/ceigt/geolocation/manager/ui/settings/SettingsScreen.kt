@@ -263,6 +263,8 @@ fun SettingsScreen(
     LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
+                is SystemHooksEvent.UnsupportedSystemVersion ->
+                    snackbarHostState.showSnackbar("全局系统模式需要 Android 12 或更高版本；当前系统请使用应用模式或 Mock Provider")
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
                 is SystemHooksEvent.TargetAppScopeRequired ->
@@ -530,6 +532,8 @@ fun SettingsBottomSheet(
     LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
+                is SystemHooksEvent.UnsupportedSystemVersion ->
+                    snackbarHostState.showSnackbar("全局系统模式需要 Android 12 或更高版本；当前系统请使用应用模式或 Mock Provider")
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
                 is SystemHooksEvent.TargetAppScopeRequired ->

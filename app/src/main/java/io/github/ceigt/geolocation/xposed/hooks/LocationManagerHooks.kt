@@ -27,12 +27,13 @@ internal class LocationManagerHooks(
 
             module.hook(method).intercept { chain ->
                 val provider = chain.getArg(0) as String
-                if (PreferencesUtil.snapshot().isPlaying) {
-                    val fakeLocation = LocationUtil.createFakeLocation(provider = provider)
+                val original = chain.proceed() as? Location
+                if (original != null && PreferencesUtil.snapshot().isPlaying) {
+                    val fakeLocation = LocationUtil.createFakeLocation(original, provider = provider)
                     logLocationEvent { "getLastKnownLocation($provider): $fakeLocation" }
                     fakeLocation
                 } else {
-                    chain.proceed() as? Location
+                    original
                 }
             }
         } catch (e: Exception) {
