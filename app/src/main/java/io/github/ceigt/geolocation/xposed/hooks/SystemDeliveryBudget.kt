@@ -10,6 +10,11 @@ internal class SystemDeliveryBudget(
     private val interval = intervalMillis.coerceAtLeast(1000L)
     private var last: Long? = null
     private var delivered = 0
+    @Synchronized fun remainingMillis(now: Long): Long = when {
+        delivered >= maxUpdates -> 0L
+        durationMillis == Long.MAX_VALUE -> Long.MAX_VALUE
+        else -> (durationMillis - (now - started)).coerceAtLeast(0L)
+    }
     @Synchronized fun expired(now: Long): Boolean = delivered >= maxUpdates || now - started >= durationMillis
     @Synchronized fun due(now: Long): Boolean = !expired(now) && (last == null || now - last!! >= interval)
     @Synchronized fun sent(now: Long) { last = now; if (delivered < Int.MAX_VALUE) delivered++ }

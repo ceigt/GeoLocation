@@ -48,7 +48,15 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private var reverseGeocodeJob: Job? = null
     private var mapActive = false
     private var mapQuotaDialogShownThisSession = false
-    private var pendingToggle = false
+    private val pendingToggle = java.util.concurrent.atomic.AtomicBoolean()
+    private val _saveError = MutableStateFlow(false)
+    val saveError = _saveError.asStateFlow()
+    fun clearSaveError() { _saveError.value = false }
+    private val writer = io.github.ceigt.geolocation.manager.ui.settings.SettingsWriter(viewModelScope) { error ->
+        pendingToggle.set(false)
+        android.util.Log.e("MapViewModel", "Map save failed: ${error.javaClass.simpleName}")
+        _saveError.value = true
+    }
 
     /**
      * Represents field input state with value and validation error message
@@ -164,13 +172,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlaying() {
-        if (pendingToggle) return
-        pendingToggle = true
-        val currentIsPlaying = !preferencesRepository.getIsPlaying()
-
-        viewModelScope.launch {
-            try { preferencesRepository.saveIsPlaying(currentIsPlaying) }
-            finally { pendingToggle = false }
+        if (!pendingToggle.compareAndSet(false, true)) return
+        writer.enqueue {
+            try { preferencesRepository.saveIsPlaying(!preferencesRepository.getIsPlaying()) }
+            finally { pendingToggle.set(false) }
         }
     }
 
@@ -200,28 +205,16 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateClickedLocation(geoPoint: GeoPoint?) {
-        _uiState.update {
-            it.copy(
-                lastClickedLocation = geoPoint,
-                selectedLocationAddress = null,
-                selectedLocationPoiTitle = null,
-                isSelectedLocationAddressLoading = false,
-                selectedLocationAddressMessageRes = null
-            )
-        }
-
-        viewModelScope.launch {
+        // The preference flow publishes the selected point only after the save succeeds.
+        writer.enqueue {
             geoPoint?.let {
-                preferencesRepository.saveLastClickedLocation(
-                    it.latitude,
-                    it.longitude
-                )
+                preferencesRepository.saveLastClickedLocation(it.latitude, it.longitude)
             } ?: preferencesRepository.clearLastClickedLocation()
         }
     }
 
     fun addFavoriteLocation(favoriteLocation: FavoriteLocation) {
-        viewModelScope.launch {
+        writer.enqueue {
             preferencesRepository.addFavorite(favoriteLocation)
         }
     }
@@ -520,6 +513,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        writer.close()
         onMapExited()
         placeSearchRequests.close()
         reverseGeocodeRequests.close()

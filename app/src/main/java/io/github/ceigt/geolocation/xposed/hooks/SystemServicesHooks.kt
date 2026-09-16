@@ -478,17 +478,9 @@ class SystemServicesHooks(
         return null
     }
 
-    private fun findField(clazz: Class<*>, fieldName: String): Field? {
-        var currentClass: Class<*>? = clazz
-        while (currentClass != null) {
-            try {
-                return currentClass.getDeclaredField(fieldName).apply { isAccessible = true }
-            } catch (_: NoSuchFieldException) {
-                currentClass = currentClass.superclass
-            }
-        }
-        return null
-    }
+    private val members = ReflectionCache()
+
+    private fun findField(clazz: Class<*>, fieldName: String): Field? = members.field(clazz, fieldName)
 
     // Name-based attribution for pull/query style calls: only spoof while playing and when a target
     // package can be recovered from the call arguments (caller identity, work source, request, etc.).
@@ -623,20 +615,8 @@ class SystemServicesHooks(
         return packageNames
     }
 
-    private fun findMethod(clazz: Class<*>, methodName: String, vararg parameterTypes: Class<*>): Method? {
-        var currentClass: Class<*>? = clazz
-        while (currentClass != null) {
-            try {
-                return currentClass.getDeclaredMethod(methodName, *parameterTypes).apply { isAccessible = true }
-            } catch (_: NoSuchMethodException) {
-                currentClass = currentClass.superclass
-            }
-        }
-
-        return clazz.methods.firstOrNull {
-            it.name == methodName && it.parameterTypes.contentEquals(parameterTypes)
-        }?.apply { isAccessible = true }
-    }
+    private fun findMethod(clazz: Class<*>, methodName: String, vararg parameterTypes: Class<*>): Method? =
+        members.method(clazz, methodName, *parameterTypes)
 
     private fun looksLikePackageName(value: String?): Boolean {
         return value != null && "." in value && !value.startsWith("android.location.")

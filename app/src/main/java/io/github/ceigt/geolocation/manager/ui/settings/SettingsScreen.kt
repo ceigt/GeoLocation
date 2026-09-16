@@ -261,6 +261,15 @@ fun SettingsScreen(
     var targetAppScopeRequired by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        settingsViewModel.saveError.collect { failed ->
+            if (failed) {
+                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_failed))
+                settingsViewModel.clearSaveError()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
                 is SystemHooksEvent.UnsupportedSystemVersion ->
@@ -416,7 +425,7 @@ fun SettingsScreen(
                         onSaveGoogle = settingsViewModel::setGoogleMapsApiKey,
                         onSaved = {
                             cacheScope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.setting_map_ak_saved))
+                                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_requested))
                             }
                         },
                         onClearMapCache = {
@@ -528,6 +537,15 @@ fun SettingsBottomSheet(
     val cacheScope = rememberCoroutineScope()
     var missingSystemScopePackages by remember { mutableStateOf<List<String>?>(null) }
     var targetAppScopeRequired by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        settingsViewModel.saveError.collect { failed ->
+            if (failed) {
+                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_failed))
+                settingsViewModel.clearSaveError()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         settingsViewModel.systemHooksEvents.collect { event ->
@@ -643,7 +661,7 @@ fun SettingsBottomSheet(
                         onSaveGoogle = settingsViewModel::setGoogleMapsApiKey,
                         onSaved = {
                             cacheScope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.setting_map_ak_saved))
+                                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_requested))
                             }
                         },
                         onClearMapCache = {

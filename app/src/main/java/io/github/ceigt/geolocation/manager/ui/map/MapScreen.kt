@@ -158,6 +158,14 @@ fun MapScreen(
             showSettingsSheet || uiState.showMapQuotaDialog || favoritePendingDeletion != null
     val fakeLocationSet = stringResource(R.string.toast_fake_location_set)
     val fakeLocationUnset = stringResource(R.string.toast_unset_fake_location)
+    LaunchedEffect(mapViewModel) {
+        mapViewModel.saveError.collect { failed ->
+            if (failed) {
+                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_failed))
+                mapViewModel.clearSaveError()
+            }
+        }
+    }
     LaunchedEffect(uiState.mockFailed) {
         if (uiState.mockFailed) snackbarHostState.showSnackbar("模拟位置启动失败，请检查模拟位置应用授权和定位权限")
     }

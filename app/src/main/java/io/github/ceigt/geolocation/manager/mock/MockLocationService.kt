@@ -61,7 +61,7 @@ class MockLocationService : Service() {
                 return
             }
 
-            if (pushMockLocation(state.location, state.accuracy)) {
+            if (pushMockLocation(state)) {
                 if (destroyed || startId != latestStartId) return
                 runtimeState.value = RuntimeState.RUNNING
                 val interval = if (powerManager.isInteractive) {
@@ -135,41 +135,44 @@ class MockLocationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun readState(prefs: SharedPreferences = preferences): MockState {
-        val canSpoof = prefs.getBoolean(KEY_IS_PLAYING, false) &&
-            prefs.getBoolean(KEY_ENABLE_MOCK_PROVIDER, false)
+        val values = prefs.all
+        val canSpoof = values[KEY_IS_PLAYING] == true && values[KEY_ENABLE_MOCK_PROVIDER] == true
 
-        val location = prefs.getString(KEY_LAST_CLICKED_LOCATION, null)
+        val location = (values[KEY_LAST_CLICKED_LOCATION] as? String)
             ?.takeIf { it.isNotBlank() }
             ?.let { runCatching { JsonCodec.decodeLocation(it) }.getOrNull() }
             ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() &&
                 it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
 
-        val accuracy = if (prefs.getBoolean(KEY_USE_ACCURACY, false)) {
-            readDouble(prefs, KEY_ACCURACY, DEFAULT_ACCURACY).toFloat()
+        val accuracy = if (values[KEY_USE_ACCURACY] == true) {
+            (values[KEY_ACCURACY] as? Long)?.let { Double.fromBits(it).toFloat() }
+                ?: DEFAULT_ACCURACY.toFloat()
         } else {
             DEFAULT_ACCURACY.toFloat()
         }.takeIf { it.isFinite() && it > 0f } ?: DEFAULT_MOCK_ACCURACY_METERS
 
-        return MockState(canSpoof = canSpoof, location = location, accuracy = accuracy)
+        return MockState(canSpoof = canSpoof, location = location, accuracy = accuracy, parameters = values)
     }
 
-    private fun pushMockLocation(location: LastClickedLocation, accuracy: Float): Boolean {
-        if (pushMockLocationOnce(location, accuracy)) return true
+    private fun pushMockLocation(state: MockState): Boolean {
+        if (pushMockLocationOnce(state)) return true
 
         if (!mockLocationRepairAttempted && repairMockLocationAppOp()) {
-            return pushMockLocationOnce(location, accuracy)
+            return pushMockLocationOnce(state)
         }
         return false
     }
 
-    private fun pushMockLocationOnce(location: LastClickedLocation, accuracy: Float): Boolean {
+    private fun pushMockLocationOnce(state: MockState): Boolean {
         if (destroyed || !currentState.canSpoof) return false
+        val point = state.location ?: return false
+        val fix = MockFixFactory.create(point, state.accuracy, state.parameters)
         var pushed = false
         TARGET_PROVIDERS.forEach { provider ->
             val providerReady = ensureMockProvider(provider)
             if (providerReady) {
                 runCatching {
-                    locationManager.setTestProviderLocation(provider, buildLocation(provider, location, accuracy))
+                    locationManager.setTestProviderLocation(provider, Location(fix).apply { this.provider = provider })
                     pushed = true
                 }.onFailure {
                     Log.w(TAG, "Could not set mock location for $provider: ${it.message}")
@@ -201,7 +204,7 @@ class MockLocationService : Service() {
                     false,
                     true,
                     true,
-                    true,
+                    false,
                     android.location.Criteria.POWER_LOW,
                     android.location.Criteria.ACCURACY_FINE
                 )
@@ -224,22 +227,8 @@ class MockLocationService : Service() {
             .setPowerUsage(ProviderProperties.POWER_USAGE_LOW)
             .setHasAltitudeSupport(true)
             .setHasSpeedSupport(true)
-            .setHasBearingSupport(true)
+            .setHasBearingSupport(false)
             .build()
-    }
-
-    private fun buildLocation(
-        provider: String,
-        location: LastClickedLocation,
-        accuracy: Float
-    ): Location {
-        return Location(provider).apply {
-            latitude = location.latitude
-            longitude = location.longitude
-            this.accuracy = accuracy
-            time = System.currentTimeMillis()
-            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-        }
     }
 
     private fun stopMockProviders() {
@@ -278,7 +267,8 @@ class MockLocationService : Service() {
     private data class MockState(
         val canSpoof: Boolean,
         val location: LastClickedLocation?,
-        val accuracy: Float
+        val accuracy: Float,
+        val parameters: Map<String, *> = emptyMap<String, Any>()
     )
 
     companion object {

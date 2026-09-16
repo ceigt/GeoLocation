@@ -10,7 +10,8 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
-import java.util.IdentityHashMap
+import io.github.ceigt.geolocation.manager.ui.map.CoordinateTransform
+import io.github.ceigt.geolocation.manager.ui.map.GeoPoint
 
 /**
  * Adapts Tencent Location SDK callbacks used by WeChat and WeCom.
@@ -24,7 +25,7 @@ internal class TencentLocationHooks(
     private val classLoader: ClassLoader
 ) {
     private val tag = "[TencentLocationHooks]"
-    private val listenerProxies = IdentityHashMap<Any, Any>()
+    private val listenerProxies = WeakListenerRegistry()
     private val installedMethods = mutableSetOf<Method>()
 
     private val reportedEvents = java.util.Collections.synchronizedSet(mutableSetOf<String>())
@@ -63,18 +64,24 @@ internal class TencentLocationHooks(
                     if (listenerIndex < 0) return@hook chain.proceed()
 
                     val originalListener = chain.args[listenerIndex] ?: return@hook chain.proceed()
-                    val proxyListener = getOrCreateListenerProxy(
-                        originalListener,
-                        listenerClass,
-                        locationClass
-                    )
-                    if (proxyListener === originalListener) return@hook chain.proceed()
-
+                    if (isOurListenerProxy(originalListener)) return@hook chain.proceed()
+                    val owner = chain.thisObject ?: return@hook chain.proceed()
+                    val single = method.name == "requestSingleFreshLocation"
+                    val proxyListener = listenerProxies.acquire(owner, originalListener, single) {
+                        Proxy.newProxyInstance(listenerClass.classLoader, arrayOf(listenerClass),
+                            TencentListenerHandler(originalListener, locationClass, single))
+                    }
                     val newArgs = chain.args.toTypedArray()
                     newArgs[listenerIndex] = proxyListener
-                    val result = chain.proceed(newArgs)
-                    reportOnce("Listener registration: ${managerClass.name}.${method.name}; result=$result")
-                    result
+                    try {
+                        val result = chain.proceed(newArgs)
+                        listenerProxies.registered(proxyListener, result !is Number || result.toInt() == 0)
+                        reportOnce("Listener registration: ${managerClass.name}.${method.name}; result=$result")
+                        result
+                    } catch (error: Throwable) {
+                        listenerProxies.registered(proxyListener, false)
+                        throw error
+                    }
                 }
             }
     }
@@ -91,13 +98,17 @@ internal class TencentLocationHooks(
                     if (listenerIndex < 0) return@hook chain.proceed()
 
                     val originalListener = chain.args[listenerIndex] ?: return@hook chain.proceed()
-                    val proxyListener = synchronized(listenerProxies) {
-                        listenerProxies.remove(originalListener)
-                    } ?: return@hook chain.proceed()
-
-                    val newArgs = chain.args.toTypedArray()
-                    newArgs[listenerIndex] = proxyListener
-                    chain.proceed(newArgs)
+                    val owner = chain.thisObject ?: return@hook chain.proceed()
+                    val proxies = listenerProxies.proxies(owner, originalListener)
+                    if (proxies.isEmpty()) return@hook chain.proceed()
+                    var result: Any? = null
+                    for ((index, proxyListener) in proxies.withIndex()) {
+                        val newArgs = chain.args.toTypedArray()
+                        newArgs[listenerIndex] = proxyListener
+                        result = if (index == 0) chain.proceed(newArgs) else invokeOriginal(method, owner, newArgs)
+                        listenerProxies.remove(proxyListener)
+                    }
+                    result
                 }
             }
     }
@@ -121,22 +132,6 @@ internal class TencentLocationHooks(
             }
     }
 
-    private fun getOrCreateListenerProxy(
-        original: Any,
-        listenerClass: Class<*>,
-        locationClass: Class<*>
-    ): Any {
-        if (isOurListenerProxy(original)) return original
-
-        return synchronized(listenerProxies) {
-            listenerProxies[original] ?: Proxy.newProxyInstance(
-                listenerClass.classLoader,
-                arrayOf(listenerClass),
-                TencentListenerHandler(original, locationClass)
-            ).also { listenerProxies[original] = it }
-        }
-    }
-
     private fun isOurListenerProxy(value: Any): Boolean =
         Proxy.isProxyClass(value.javaClass) &&
             runCatching { Proxy.getInvocationHandler(value) is TencentListenerHandler }
@@ -144,13 +139,15 @@ internal class TencentLocationHooks(
 
     private inner class TencentListenerHandler(
         private val original: Any,
-        private val locationClass: Class<*>
+        private val locationClass: Class<*>,
+        private val single: Boolean
     ) : InvocationHandler {
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
             if (method.declaringClass == Any::class.java) {
                 return invokeObjectMethod(proxy, method.name, args)
             }
 
+            try {
             val forwardedArgs = args?.let { source ->
                 Array<Any?>(source.size) { index -> source[index] }
             }
@@ -165,7 +162,10 @@ internal class TencentLocationHooks(
                 forwardedArgs[0] = wrapLocation(forwardedArgs[0]!!, locationClass)
                 reportOnce("SDK callback replaced: ${locationClass.name}")
             }
-            return invokeOriginal(method, original, forwardedArgs)
+                return invokeOriginal(method, original, forwardedArgs)
+            } finally {
+                if (single && method.name == "onLocationChanged") listenerProxies.remove(proxy)
+            }
         }
     }
 
@@ -183,10 +183,18 @@ internal class TencentLocationHooks(
                 return@newProxyInstance invokeOriginal(method, original, args)
             }
 
-            LocationUtil.updateLocation(config)
+            // Tencent exposes WGS-84/GCJ-02 only. Convert BD-09 at this interface boundary.
+            val point = synchronized(LocationUtil) {
+                LocationUtil.updateLocation(config)
+                val lat = LocationUtil.latitude
+                val lon = LocationUtil.longitude
+                if (config.appCoordinateSystems[LocationUtil.targetPackageName] == CoordinateSystem.BD09) {
+                    CoordinateTransform.bd09ToGcj02(lat, lon)
+                } else GeoPoint(lat, lon)
+            }
             when (method.name) {
-                "getLatitude" -> LocationUtil.latitude
-                "getLongitude" -> LocationUtil.longitude
+                "getLatitude" -> point.latitude
+                "getLongitude" -> point.longitude
                 "getAltitude" -> if (config.useAltitude) {
                     LocationUtil.altitude
                 } else {

@@ -6,6 +6,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PreferenceSyncTest {
+    @Test fun failedModeCommitRestoresBothFlags() {
+        val local = MemoryPreferences()
+        val remote = MemoryPreferences()
+        local.edit().putBoolean(KEY_ENABLE_MOCK_PROVIDER, true)
+            .putBoolean(KEY_ENABLE_SYSTEM_HOOKS, false).commit()
+        local.rejectWrites = true
+        local.updateMemoryOnFailure = true
+        try {
+            PreferenceSync.edit(local, remote) {
+                putBoolean(KEY_ENABLE_MOCK_PROVIDER, false)
+                putBoolean(KEY_ENABLE_SYSTEM_HOOKS, true)
+            }
+            fail("Expected persistence failure")
+        } catch (_: IllegalStateException) { }
+        assertTrue(local.getBoolean(KEY_ENABLE_MOCK_PROVIDER, false))
+        assertFalse(local.getBoolean(KEY_ENABLE_SYSTEM_HOOKS, true))
+        assertFalse(remote.contains(KEY_ENABLE_MOCK_PROVIDER))
+        assertFalse(remote.contains(KEY_ENABLE_SYSTEM_HOOKS))
+    }
+    @Test fun failedDiskWriteRestoresMemoryAndDoesNotReachRemote() {
+        val local = MemoryPreferences()
+        val remote = MemoryPreferences()
+        local.edit().putFloat(KEY_SPEED, 1f).commit()
+        local.rejectWrites = true
+        local.updateMemoryOnFailure = true
+        try {
+            PreferenceSync.edit(local, remote) { putFloat(KEY_SPEED, 9f) }
+            fail("Expected persistence failure")
+        } catch (_: IllegalStateException) { }
+        assertEquals(1f, local.getFloat(KEY_SPEED, 0f))
+        assertFalse(local.contains(PreferenceSync.PENDING))
+        assertFalse(remote.contains(KEY_SPEED))
+    }
     @Test fun offlineEditsWinWhileExistingRemoteSettingsSurviveUpgrade() {
         val local = MemoryPreferences()
         val remote = MemoryPreferences()
@@ -57,6 +90,7 @@ class PreferenceSyncTest {
     private class MemoryPreferences : SharedPreferences {
         private val values = mutableMapOf<String, Any>()
         var rejectWrites = false
+        var updateMemoryOnFailure = false
         override fun getAll(): MutableMap<String, *> = values.toMutableMap()
         override fun contains(key: String?) = key in values
         override fun getBoolean(key: String?, defValue: Boolean) = values[key] as? Boolean ?: defValue
@@ -80,9 +114,9 @@ class PreferenceSyncTest {
             override fun remove(key: String) = apply { changes[key] = null }
             override fun clear() = apply { values.keys.forEach { changes[it] = null } }
             override fun commit(): Boolean {
-                if (rejectWrites) return false
+                if (rejectWrites && !updateMemoryOnFailure) return false
                 for ((key, value) in changes) if (value == null) values.remove(key) else values[key] = value
-                return true
+                return !rejectWrites
             }
             override fun apply() { commit() }
         }

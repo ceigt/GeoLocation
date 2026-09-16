@@ -21,6 +21,7 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
         override fun equals(other: Any?) = other is Key && listener === other.listener && provider == other.provider
         override fun hashCode() = 31 * System.identityHashCode(listener) + provider.hashCode()
     }
+    private val skippedSignatures = ConcurrentHashMap.newKeySet<String>()
     private val registrationLock = Any()
     private val registrations = ConcurrentHashMap<Key, Registration>()
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -127,7 +128,13 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
                             registrations.values.filter { it.key.listener === listener }.forEach { it.retire() }
                             return@intercept chain.proceed()
                         }
-                        val provider = chain.args.filterIsInstance<String>().firstOrNull() ?: return@intercept chain.proceed()
+                        val provider = chain.args.filterIsInstance<String>().firstOrNull()
+                        if (provider == null) {
+                            if (skippedSignatures.add(method.toGenericString())) {
+                                module.log(Log.INFO, "[ActiveLocationHooks]", "Native-only overload: ${method.toGenericString()}")
+                            }
+                            return@intercept chain.proceed()
+                        }
                         val request = chain.args.firstOrNull { it?.javaClass?.name == "android.location.LocationRequest" }
                         fun number(name: String, fallback: Long) = runCatching {
                             (request?.javaClass?.getMethod(name)?.invoke(request) as? Number)?.toLong() ?: fallback

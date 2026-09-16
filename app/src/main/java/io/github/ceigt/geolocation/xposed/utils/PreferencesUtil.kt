@@ -69,6 +69,9 @@ object PreferencesUtil {
         refreshCache(prefs)
     }
 
+    private val modeListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+    fun onModeChange(listener: () -> Unit) { modeListeners.add(listener) }
+
     fun init(prefs: SharedPreferences) {
         preferences = prefs
         if (registeredPrefs !== prefs) {
@@ -142,6 +145,7 @@ object PreferencesUtil {
             DEFAULT_ENABLE_MOCK_PROVIDER
         )
         val point = parseLastClickedLocation(prefs.getString(KEY_LAST_CLICKED_LOCATION, null))
+        val previousMode = cache.isPlaying && cache.enableSystemHooks
         cache = PreferencesSnapshot(
             // Mock Provider and Xposed replacement are mutually exclusive location sources.
             // Keeping installed interceptors inert also makes mode changes take effect without
@@ -181,6 +185,9 @@ object PreferencesUtil {
             )
         )
         lastRefreshNanos = SystemClock.elapsedRealtimeNanos()
+        if (previousMode != (cache.isPlaying && cache.enableSystemHooks)) {
+            modeListeners.forEach { listener -> runCatching { listener() } }
+        }
         val diagnostic = "hookActive=${cache.isPlaying}, mockProvider=$mockProviderEnabled, " +
             "hasPoint=${cache.lastClickedLocation != null}, systemHooks=${cache.enableSystemHooks}"
         if (diagnostic != lastDiagnostic) {

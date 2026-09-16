@@ -18,6 +18,7 @@ internal object PreferenceSync {
 
     @Synchronized
     fun edit(local: SharedPreferences, remote: SharedPreferences?, action: SharedPreferences.Editor.() -> Unit) {
+        val previous = local.all
         val editor = local.edit()
         val changed = mutableSetOf<String>()
         val recording = object : SharedPreferences.Editor by editor {
@@ -33,7 +34,7 @@ internal object PreferenceSync {
         recording.action()
         require(changed.all { it in keys }) { "Only hook settings may be mirrored" }
         val pending = local.getStringSet(PENDING, emptySet()).orEmpty() + changed
-        check(editor.putStringSet(PENDING, pending).commit()) { "Cannot persist settings" }
+        commitOrRestore(local, editor.putStringSet(PENDING, pending), previous, changed + PENDING)
         if (remote != null) runCatching { flush(local, remote) }
     }
 

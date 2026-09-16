@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SystemDeliveryBudgetTest {
+    @org.junit.Test fun pausedRequestHasFiniteCleanupDeadline() {
+        val budget = SystemDeliveryBudget(100L, 1000L, 5000L, 2)
+        org.junit.Assert.assertEquals(4000L, budget.remainingMillis(1100L))
+        org.junit.Assert.assertEquals(0L, budget.remainingMillis(6000L))
+        val unlimited = SystemDeliveryBudget(100L, 1000L, Long.MAX_VALUE, 1)
+        org.junit.Assert.assertEquals(Long.MAX_VALUE, unlimited.remainingMillis(1100L))
+        unlimited.sent(1100L)
+        org.junit.Assert.assertEquals(0L, unlimited.remainingMillis(1100L))
+    }
     @Test fun firstDeliveryIsImmediateAndRequestedIntervalIsRespected() {
         val budget = SystemDeliveryBudget(100, 5000, Long.MAX_VALUE, 10)
         assertTrue(budget.due(100))

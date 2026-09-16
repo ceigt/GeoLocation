@@ -7,10 +7,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.ceigt.geolocation.data.*
 import io.github.ceigt.geolocation.data.repository.PreferencesRepository
 import io.github.ceigt.geolocation.manager.App
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** One-shot messages surfaced to the settings UI. */
 sealed interface SystemHooksEvent {
@@ -38,117 +35,28 @@ internal fun resolveLocationMode(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val preferencesRepository = PreferencesRepository(application)
 
-    // Generic state holders for different types of preferences
-    private class BooleanPreference(
-        initialValue: Boolean,
-        private val flow: Flow<Boolean>,
-        private val saveOperation: suspend (Boolean) -> Unit,
-        private val viewModelScope: kotlinx.coroutines.CoroutineScope
-    ) {
-        private val _state = MutableStateFlow(initialValue)
-        val state: StateFlow<Boolean> = _state.asStateFlow()
-
-        init {
-            viewModelScope.launch {
-                flow.collect { _state.value = it }
-            }
-        }
-
-        fun setValue(value: Boolean) {
-            _state.value = value
-            viewModelScope.launch {
-                try {
-                    saveOperation(value)
-                } catch (e: Exception) {
-                    // Add error handling if needed
-                }
-            }
-        }
+    private val _saveError = MutableStateFlow(false)
+    val saveError = _saveError.asStateFlow()
+    fun clearSaveError() { _saveError.value = false }
+    private val writer = SettingsWriter(viewModelScope) { error ->
+        android.util.Log.e("SettingsViewModel", "Setting save failed: ${error.javaClass.simpleName}")
+        _saveError.value = true
     }
+    private fun enqueueSave(operation: suspend () -> Unit) = writer.enqueue(operation)
+    override fun onCleared() { writer.close(); super.onCleared() }
 
-    private class DoublePreference(
-        initialValue: Double,
-        private val flow: Flow<Double>,
-        private val saveOperation: suspend (Double) -> Unit,
-        private val viewModelScope: kotlinx.coroutines.CoroutineScope
+    private inner class Preference<T>(
+        initialValue: T,
+        flow: Flow<T>,
+        private val saveOperation: suspend (T) -> Unit,
+        scope: kotlinx.coroutines.CoroutineScope
     ) {
-        private val _state = MutableStateFlow(initialValue)
-        val state: StateFlow<Double> = _state.asStateFlow()
-
-        init {
-            viewModelScope.launch {
-                flow.collect { _state.value = it }
-            }
-        }
-
-        fun setValue(value: Double) {
-            _state.value = value
-            viewModelScope.launch {
-                try {
-                    saveOperation(value)
-                } catch (e: Exception) {
-                    // Add error handling if needed
-                }
-            }
-        }
-    }
-
-    private class FloatPreference(
-        initialValue: Float,
-        private val flow: Flow<Float>,
-        private val saveOperation: suspend (Float) -> Unit,
-        private val viewModelScope: kotlinx.coroutines.CoroutineScope
-    ) {
-        private val _state = MutableStateFlow(initialValue)
-        val state: StateFlow<Float> = _state.asStateFlow()
-
-        init {
-            viewModelScope.launch {
-                flow.collect { _state.value = it }
-            }
-        }
-
-        fun setValue(value: Float) {
-            _state.value = value
-            viewModelScope.launch {
-                try {
-                    saveOperation(value)
-                } catch (e: Exception) {
-                    // Add error handling if needed
-                }
-            }
-        }
-    }
-
-    private class StringPreference(
-        initialValue: String,
-        private val flow: Flow<String>,
-        private val saveOperation: suspend (String) -> Unit,
-        private val viewModelScope: kotlinx.coroutines.CoroutineScope
-    ) {
-        private val _state = MutableStateFlow(initialValue)
-        val state: StateFlow<String> = _state.asStateFlow()
-
-        init {
-            viewModelScope.launch {
-                flow.collect { _state.value = it }
-            }
-        }
-
-        fun setValue(value: String) {
-            _state.value = value
-            viewModelScope.launch {
-                try {
-                    saveOperation(value)
-                } catch (e: Exception) {
-                    // Add error handling if needed
-                }
-            }
-        }
+        val state = flow.stateIn(scope, SharingStarted.Eagerly, initialValue)
+        fun setValue(value: T) = enqueueSave { saveOperation(value) }
     }
 
     // Preferences for Accuracy
-    private val _useAccuracyPreference = BooleanPreference(
+    private val _useAccuracyPreference = Preference(
         DEFAULT_USE_ACCURACY,
         preferencesRepository.getUseAccuracyFlow(),
         preferencesRepository::saveUseAccuracy,
@@ -156,7 +64,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useAccuracy: StateFlow<Boolean> = _useAccuracyPreference.state
 
-    private val _accuracyPreference = DoublePreference(
+    private val _accuracyPreference = Preference(
         DEFAULT_ACCURACY,
         preferencesRepository.getAccuracyFlow(),
         preferencesRepository::saveAccuracy,
@@ -165,7 +73,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val accuracy: StateFlow<Double> = _accuracyPreference.state
 
     // Preferences for Altitude
-    private val _useAltitudePreference = BooleanPreference(
+    private val _useAltitudePreference = Preference(
         DEFAULT_USE_ALTITUDE,
         preferencesRepository.getUseAltitudeFlow(),
         preferencesRepository::saveUseAltitude,
@@ -173,7 +81,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useAltitude: StateFlow<Boolean> = _useAltitudePreference.state
 
-    private val _altitudePreference = DoublePreference(
+    private val _altitudePreference = Preference(
         DEFAULT_ALTITUDE,
         preferencesRepository.getAltitudeFlow(),
         preferencesRepository::saveAltitude,
@@ -182,7 +90,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val altitude: StateFlow<Double> = _altitudePreference.state
 
     // Preferences for Randomize
-    private val _useRandomizePreference = BooleanPreference(
+    private val _useRandomizePreference = Preference(
         DEFAULT_USE_RANDOMIZE,
         preferencesRepository.getUseRandomizeFlow(),
         preferencesRepository::saveUseRandomize,
@@ -190,7 +98,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useRandomize: StateFlow<Boolean> = _useRandomizePreference.state
 
-    private val _randomizeRadiusPreference = DoublePreference(
+    private val _randomizeRadiusPreference = Preference(
         DEFAULT_RANDOMIZE_RADIUS,
         preferencesRepository.getRandomizeRadiusFlow(),
         preferencesRepository::saveRandomizeRadius,
@@ -199,7 +107,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val randomizeRadius: StateFlow<Double> = _randomizeRadiusPreference.state
 
     // Preferences for Vertical Accuracy
-    private val _useVerticalAccuracyPreference = BooleanPreference(
+    private val _useVerticalAccuracyPreference = Preference(
         DEFAULT_USE_VERTICAL_ACCURACY,
         preferencesRepository.getUseVerticalAccuracyFlow(),
         preferencesRepository::saveUseVerticalAccuracy,
@@ -207,7 +115,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useVerticalAccuracy: StateFlow<Boolean> = _useVerticalAccuracyPreference.state
 
-    private val _verticalAccuracyPreference = FloatPreference(
+    private val _verticalAccuracyPreference = Preference(
         DEFAULT_VERTICAL_ACCURACY,
         preferencesRepository.getVerticalAccuracyFlow(),
         preferencesRepository::saveVerticalAccuracy,
@@ -216,7 +124,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val verticalAccuracy: StateFlow<Float> = _verticalAccuracyPreference.state
 
     // Preferences for Mean Sea Level
-    private val _useMeanSeaLevelPreference = BooleanPreference(
+    private val _useMeanSeaLevelPreference = Preference(
         DEFAULT_USE_MEAN_SEA_LEVEL,
         preferencesRepository.getUseMeanSeaLevelFlow(),
         preferencesRepository::saveUseMeanSeaLevel,
@@ -224,7 +132,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useMeanSeaLevel: StateFlow<Boolean> = _useMeanSeaLevelPreference.state
 
-    private val _meanSeaLevelPreference = DoublePreference(
+    private val _meanSeaLevelPreference = Preference(
         DEFAULT_MEAN_SEA_LEVEL,
         preferencesRepository.getMeanSeaLevelFlow(),
         preferencesRepository::saveMeanSeaLevel,
@@ -233,7 +141,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val meanSeaLevel: StateFlow<Double> = _meanSeaLevelPreference.state
 
     // Preferences for Mean Sea Level Accuracy
-    private val _useMeanSeaLevelAccuracyPreference = BooleanPreference(
+    private val _useMeanSeaLevelAccuracyPreference = Preference(
         DEFAULT_USE_MEAN_SEA_LEVEL_ACCURACY,
         preferencesRepository.getUseMeanSeaLevelAccuracyFlow(),
         preferencesRepository::saveUseMeanSeaLevelAccuracy,
@@ -241,7 +149,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useMeanSeaLevelAccuracy: StateFlow<Boolean> = _useMeanSeaLevelAccuracyPreference.state
 
-    private val _meanSeaLevelAccuracyPreference = FloatPreference(
+    private val _meanSeaLevelAccuracyPreference = Preference(
         DEFAULT_MEAN_SEA_LEVEL_ACCURACY,
         preferencesRepository.getMeanSeaLevelAccuracyFlow(),
         preferencesRepository::saveMeanSeaLevelAccuracy,
@@ -250,7 +158,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val meanSeaLevelAccuracy: StateFlow<Float> = _meanSeaLevelAccuracyPreference.state
 
     // Preferences for Speed
-    private val _useSpeedPreference = BooleanPreference(
+    private val _useSpeedPreference = Preference(
         DEFAULT_USE_SPEED,
         preferencesRepository.getUseSpeedFlow(),
         preferencesRepository::saveUseSpeed,
@@ -258,7 +166,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useSpeed: StateFlow<Boolean> = _useSpeedPreference.state
 
-    private val _speedPreference = FloatPreference(
+    private val _speedPreference = Preference(
         DEFAULT_SPEED,
         preferencesRepository.getSpeedFlow(),
         preferencesRepository::saveSpeed,
@@ -267,7 +175,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val speed: StateFlow<Float> = _speedPreference.state
 
     // Preferences for Speed Accuracy
-    private val _useSpeedAccuracyPreference = BooleanPreference(
+    private val _useSpeedAccuracyPreference = Preference(
         DEFAULT_USE_SPEED_ACCURACY,
         preferencesRepository.getUseSpeedAccuracyFlow(),
         preferencesRepository::saveUseSpeedAccuracy,
@@ -275,7 +183,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val useSpeedAccuracy: StateFlow<Boolean> = _useSpeedAccuracyPreference.state
 
-    private val _speedAccuracyPreference = FloatPreference(
+    private val _speedAccuracyPreference = Preference(
         DEFAULT_SPEED_ACCURACY,
         preferencesRepository.getSpeedAccuracyFlow(),
         preferencesRepository::saveSpeedAccuracy,
@@ -284,7 +192,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val speedAccuracy: StateFlow<Float> = _speedAccuracyPreference.state
 
     // Preferences for Hide Fake Location Toast
-    private val _hideFakeLocationToastPreference = BooleanPreference(
+    private val _hideFakeLocationToastPreference = Preference(
         DEFAULT_HIDE_FAKE_LOCATION_TOAST,
         preferencesRepository.getHideFakeLocationToastFlow(),
         preferencesRepository::saveHideFakeLocationToast,
@@ -293,7 +201,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val hideFakeLocationToast: StateFlow<Boolean> = _hideFakeLocationToastPreference.state
 
     // Preference for External Broadcast Control
-    private val _enableBroadcastControlPreference = BooleanPreference(
+    private val _enableBroadcastControlPreference = Preference(
         DEFAULT_ENABLE_BROADCAST_CONTROL,
         preferencesRepository.getEnableBroadcastControlFlow(),
         preferencesRepository::saveEnableBroadcastControl,
@@ -301,7 +209,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val enableBroadcastControl: StateFlow<Boolean> = _enableBroadcastControlPreference.state
 
-    private val _enableMockProviderPreference = BooleanPreference(
+    private val _enableMockProviderPreference = Preference(
         DEFAULT_ENABLE_MOCK_PROVIDER,
         preferencesRepository.getEnableMockProviderFlow(),
         preferencesRepository::saveEnableMockProvider,
@@ -325,7 +233,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val systemHooksEvents: SharedFlow<SystemHooksEvent> = _systemHooksEvents.asSharedFlow()
 
     // Preference for Language
-    private val _languageTagPreference = StringPreference(
+    private val _languageTagPreference = Preference(
         DEFAULT_LANGUAGE_TAG,
         preferencesRepository.getLanguageTagFlow(),
         preferencesRepository::saveLanguageTag,
@@ -333,7 +241,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val languageTag: StateFlow<String> = _languageTagPreference.state
 
-    private val _baiduMapAkPreference = StringPreference(
+    private val _baiduMapAkPreference = Preference(
         DEFAULT_BAIDU_MAP_AK,
         preferencesRepository.getBaiduMapAkFlow(),
         preferencesRepository::saveBaiduMapAk,
@@ -344,7 +252,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val mapProvider: StateFlow<MapProvider> = preferencesRepository.getMapProviderFlow()
         .stateIn(viewModelScope, SharingStarted.Eagerly, MapProvider.BAIDU)
 
-    private val _amapWebKeyPreference = StringPreference(
+    private val _amapWebKeyPreference = Preference(
         DEFAULT_AMAP_WEB_KEY,
         preferencesRepository.getAmapWebKeyFlow(),
         preferencesRepository::saveAmapWebKey,
@@ -352,7 +260,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val amapWebKey: StateFlow<String> = _amapWebKeyPreference.state
 
-    private val _amapSecurityCodePreference = StringPreference(
+    private val _amapSecurityCodePreference = Preference(
         DEFAULT_AMAP_SECURITY_CODE,
         preferencesRepository.getAmapSecurityCodeFlow(),
         preferencesRepository::saveAmapSecurityCode,
@@ -360,7 +268,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     )
     val amapSecurityCode: StateFlow<String> = _amapSecurityCodePreference.state
 
-    private val _googleMapsApiKeyPreference = StringPreference(
+    private val _googleMapsApiKeyPreference = Preference(
         DEFAULT_GOOGLE_MAPS_API_KEY,
         preferencesRepository.getGoogleMapsApiKeyFlow(),
         preferencesRepository::saveGoogleMapsApiKey,
@@ -389,80 +297,46 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setEnableBroadcastControl(value: Boolean) = _enableBroadcastControlPreference.setValue(value)
     fun setLanguageTag(value: String) = _languageTagPreference.setValue(value)
     fun setBaiduMapAk(value: String) = _baiduMapAkPreference.setValue(value.trim())
-    fun setMapProvider(value: MapProvider) = viewModelScope.launch {
+    fun setMapProvider(value: MapProvider) = enqueueSave {
         preferencesRepository.saveMapProvider(value)
     }
     fun setAmapWebKey(value: String) = _amapWebKeyPreference.setValue(value.trim())
     fun setAmapSecurityCode(value: String) = _amapSecurityCodePreference.setValue(value.trim())
     fun setGoogleMapsApiKey(value: String) = _googleMapsApiKeyPreference.setValue(value.trim())
 
-    fun selectLocationMode(mode: LocationMode) {
-        when (mode) {
-            LocationMode.APPLICATION_HOOK -> {
-                _enableMockProviderPreference.setValue(false)
-                setEnableSystemHooks(false)
-            }
+    private val modeSelection = LatestSelection<LocationMode>(
+        ::enqueueSave,
+        { mode -> mode != LocationMode.SYSTEM_HOOK || validateSystemScope() },
+        { mode -> preferencesRepository.saveLocationMode(
+            mockProvider = mode == LocationMode.MOCK_PROVIDER,
+            systemHooks = mode == LocationMode.SYSTEM_HOOK
+        ) }
+    )
 
-            LocationMode.SYSTEM_HOOK -> enableSystemHooks()
+    fun selectLocationMode(mode: LocationMode) = modeSelection.select(mode)
 
-            LocationMode.MOCK_PROVIDER -> {
-                setEnableSystemHooks(false)
-                _enableMockProviderPreference.setValue(true)
-            }
-        }
-    }
-
-    private fun enableSystemHooks() {
+    private fun validateSystemScope(): Boolean {
         if (android.os.Build.VERSION.SDK_INT < 31) {
             _systemHooksEvents.tryEmit(SystemHooksEvent.UnsupportedSystemVersion)
-            return
+            return false
         }
         val service = App.service
         if (service == null) {
             _systemHooksEvents.tryEmit(SystemHooksEvent.ModuleNotActive)
-            return
+            return false
         }
-
-        viewModelScope.launch {
-            val currentScope = runCatching {
-                withContext(Dispatchers.IO) {
-                    service.scope.toSet()
-                }
-            }.getOrElse {
-                _systemHooksEvents.tryEmit(SystemHooksEvent.ModuleNotActive)
-                return@launch
-            }
-
-            val missingPackages = SYSTEM_HOOK_PACKAGES.filterNot(currentScope::contains)
-
-            if (missingPackages.isNotEmpty()) {
-                _systemHooksEvents.tryEmit(SystemHooksEvent.ScopeSetupRequired(missingPackages))
-                return@launch
-            }
-
-            _enableMockProviderPreference.setValue(false)
-            preferencesRepository.saveEnableSystemHooks(true)
-        }
-    }
-
-    /**
-     * The required system packages are declared in META-INF/xposed/scope.list. Scope changes are
-     * intentionally left to the Xposed manager so this switch never triggers a hidden request.
-     */
-    fun setEnableSystemHooks(enabled: Boolean) {
-        if (!enabled) {
-            viewModelScope.launch {
-                preferencesRepository.saveEnableSystemHooks(false)
-            }
-            return
-        }
-
-        val service = App.service
-        if (service == null) {
+        // The writer performs this blocking Binder query off the UI thread.
+        val currentScope = try { service.scope.toSet() }
+        catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             _systemHooksEvents.tryEmit(SystemHooksEvent.ModuleNotActive)
-            return
+            return false
         }
-
-        enableSystemHooks()
+        val missing = SYSTEM_HOOK_PACKAGES.filterNot(currentScope::contains)
+        if (missing.isNotEmpty()) {
+            _systemHooksEvents.tryEmit(SystemHooksEvent.ScopeSetupRequired(missing))
+            return false
+        }
+        return true
     }
 }

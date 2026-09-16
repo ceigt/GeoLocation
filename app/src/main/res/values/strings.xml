@@ -199,4 +199,6 @@
     <string name="permissions_open_settings">Open Settings</string>
 
     <string name="about_description">GeoLocation is provided only for lawful, authorized testing, development debugging, learning, and research.\n\nDo not use this app to bypass platform rules, falsify attendance or check-ins, obtain improper benefits, disrupt services, infringe others\' rights, or conduct any illegal activity.\n\nBefore using location simulation, make sure you have permission for the target device, account, app, and scenario. You are solely responsible for how you use this app and for any consequences arising from that use.</string>
+    <string name="setting_save_failed">Could not save setting. Please retry.</string>
+    <string name="setting_save_requested">Save requested. Any failure will be shown here.</string>
 </resources>

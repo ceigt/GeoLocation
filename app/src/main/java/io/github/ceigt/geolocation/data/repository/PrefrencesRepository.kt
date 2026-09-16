@@ -75,6 +75,12 @@ class PreferencesRepository(context: Context) {
         localPrefs.edit(action = action)
     }
 
+    private suspend fun editLocalChecked(key: String, action: SharedPreferences.Editor.() -> Unit) = withContext(Dispatchers.IO) {
+        val previous = localPrefs.all
+        val editor = localPrefs.edit().apply(action)
+        commitOrRestore(localPrefs, editor, previous, setOf(key))
+    }
+
     private fun readRemoteDouble(key: String, default: Double): Double {
         val prefs = remotePrefs() ?: return default
         val bits = prefs.getLong(key, java.lang.Double.doubleToRawLongBits(default))
@@ -249,6 +255,16 @@ class PreferencesRepository(context: Context) {
         it.getBoolean(KEY_ENABLE_MOCK_PROVIDER, DEFAULT_ENABLE_MOCK_PROVIDER)
     }
 
+    /** Commit both mode flags together before reconciling the local provider service. */
+    suspend fun saveLocationMode(mockProvider: Boolean, systemHooks: Boolean) {
+        require(!(mockProvider && systemHooks))
+        editRemote {
+            putBoolean(KEY_ENABLE_MOCK_PROVIDER, mockProvider)
+            putBoolean(KEY_ENABLE_SYSTEM_HOOKS, systemHooks)
+        }
+        MockLocationService.sync(appContext, mockProvider && getIsPlaying())
+    }
+
     suspend fun saveEnableMockProvider(enabled: Boolean) {
         // Mirror the selected mode so already-injected Xposed hooks can immediately become
         // inert while Mock Provider is the active location source.
@@ -368,12 +384,12 @@ class PreferencesRepository(context: Context) {
 
     // region Broadcast Control (local)
     fun getEnableBroadcastControlFlow(): Flow<Boolean> = localFlow(KEY_ENABLE_BROADCAST_CONTROL) { it.getBoolean(KEY_ENABLE_BROADCAST_CONTROL, DEFAULT_ENABLE_BROADCAST_CONTROL) }
-    suspend fun saveEnableBroadcastControl(enable: Boolean) = editLocal { putBoolean(KEY_ENABLE_BROADCAST_CONTROL, enable) }
+    suspend fun saveEnableBroadcastControl(enable: Boolean) = editLocalChecked(KEY_ENABLE_BROADCAST_CONTROL) { putBoolean(KEY_ENABLE_BROADCAST_CONTROL, enable) }
     // endregion
 
     // region Language (local; shared with LocaleController)
     fun getLanguageTagFlow(): Flow<String> = localFlow(KEY_LANGUAGE_TAG) { it.getString(KEY_LANGUAGE_TAG, DEFAULT_LANGUAGE_TAG) ?: DEFAULT_LANGUAGE_TAG }
-    suspend fun saveLanguageTag(languageTag: String) = editLocal { putString(KEY_LANGUAGE_TAG, languageTag) }
+    suspend fun saveLanguageTag(languageTag: String) = editLocalChecked(KEY_LANGUAGE_TAG) { putString(KEY_LANGUAGE_TAG, languageTag) }
     // endregion
 
     // region Baidu Map AK (local)
@@ -381,7 +397,7 @@ class PreferencesRepository(context: Context) {
         it.getString(KEY_BAIDU_MAP_AK, DEFAULT_BAIDU_MAP_AK) ?: DEFAULT_BAIDU_MAP_AK
     }
 
-    suspend fun saveBaiduMapAk(ak: String) = editLocal { putString(KEY_BAIDU_MAP_AK, ak.trim()) }
+    suspend fun saveBaiduMapAk(ak: String) = editLocalChecked(KEY_BAIDU_MAP_AK) { putString(KEY_BAIDU_MAP_AK, ak.trim()) }
     // endregion
 
     // region Web map provider and credentials (local)
@@ -390,14 +406,14 @@ class PreferencesRepository(context: Context) {
     }
 
     suspend fun saveMapProvider(provider: MapProvider) =
-        editLocal { putString(KEY_MAP_PROVIDER, provider.storedValue) }
+        editLocalChecked(KEY_MAP_PROVIDER) { putString(KEY_MAP_PROVIDER, provider.storedValue) }
 
     fun getAmapWebKeyFlow(): Flow<String> = localFlow(KEY_AMAP_WEB_KEY) {
         it.getString(KEY_AMAP_WEB_KEY, DEFAULT_AMAP_WEB_KEY) ?: DEFAULT_AMAP_WEB_KEY
     }
 
     suspend fun saveAmapWebKey(key: String) =
-        editLocal { putString(KEY_AMAP_WEB_KEY, key.trim()) }
+        editLocalChecked(KEY_AMAP_WEB_KEY) { putString(KEY_AMAP_WEB_KEY, key.trim()) }
 
     fun getAmapSecurityCodeFlow(): Flow<String> = localFlow(KEY_AMAP_SECURITY_CODE) {
         it.getString(KEY_AMAP_SECURITY_CODE, DEFAULT_AMAP_SECURITY_CODE)
@@ -405,7 +421,7 @@ class PreferencesRepository(context: Context) {
     }
 
     suspend fun saveAmapSecurityCode(code: String) =
-        editLocal { putString(KEY_AMAP_SECURITY_CODE, code.trim()) }
+        editLocalChecked(KEY_AMAP_SECURITY_CODE) { putString(KEY_AMAP_SECURITY_CODE, code.trim()) }
 
     fun getGoogleMapsApiKeyFlow(): Flow<String> = localFlow(KEY_GOOGLE_MAPS_API_KEY) {
         it.getString(KEY_GOOGLE_MAPS_API_KEY, DEFAULT_GOOGLE_MAPS_API_KEY)
@@ -413,6 +429,6 @@ class PreferencesRepository(context: Context) {
     }
 
     suspend fun saveGoogleMapsApiKey(key: String) =
-        editLocal { putString(KEY_GOOGLE_MAPS_API_KEY, key.trim()) }
+        editLocalChecked(KEY_GOOGLE_MAPS_API_KEY) { putString(KEY_GOOGLE_MAPS_API_KEY, key.trim()) }
     // endregion
 }

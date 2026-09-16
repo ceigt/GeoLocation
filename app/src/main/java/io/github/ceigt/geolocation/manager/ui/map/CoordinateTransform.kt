@@ -23,7 +23,7 @@ object CoordinateTransform {
         return gcj02ToWgs84(gcj.latitude, gcj.longitude)
     }
 
-    private fun bd09ToGcj02(latitude: Double, longitude: Double): GeoPoint {
+    fun bd09ToGcj02(latitude: Double, longitude: Double): GeoPoint {
         val x = longitude - 0.0065
         val y = latitude - 0.006
         val z = sqrt(x * x + y * y) - 0.00002 * sin(y * X_PI)

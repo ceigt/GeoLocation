@@ -40,7 +40,7 @@ internal fun syntheticSecureLocationSetting(method: String?, setting: String?): 
  */
 internal class SystemActiveLocationHooks(private val module: XposedInterface, private val loader: ClassLoader) {
     private companion object {
-        const val LOG_DELIVERY_DIAGNOSTICS = false
+        const val DIAGNOSTIC_PACKAGE = "com.tencent.wework"
         const val CURRENT_CALLBACK_TTL_MS = 120_000L
     }
 
@@ -124,7 +124,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         val context = contextOf(chain.thisObject)
                         val user = chain.args.filterIsInstance<Int>().lastOrNull()
                         val validProvider = name != "isProviderEnabledForUser" || chain.args.firstOrNull() in providers
-                        val packageName = context?.let { appPackage(it, uid) }
+                        val packageName = context?.let { statusPackage(it, uid) }
                         val forceEnabled = active() && validProvider && user == uid / 100000 && packageName != null
                         if (forceEnabled && statusQueryReported.add("$packageName/$name")) {
                             module.log(Log.INFO, tag, "Location status query forced on: $packageName/$name")
@@ -302,7 +302,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
 
                 val uid = Binder.getCallingUid()
                 val context = (chain.thisObject as? android.content.ContentProvider)?.context
-                val packageName = context?.let { appPackage(it, uid) } ?: return@intercept result
+                val packageName = context?.let { statusPackage(it, uid) } ?: return@intercept result
                 val original = result as? Bundle ?: return@intercept result
                 val copy = Bundle(original).apply { putString("value", replacement) }
                 val setting = chain.args.getOrNull(1) as? String
@@ -516,7 +516,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                 return@isolateHook
             }
             registrations[entry.key] = entry
-            if (LOG_DELIVERY_DIAGNOSTICS) {
+            if (entry.packageName == DIAGNOSTIC_PACKAGE) {
                 module.log(Log.INFO, tag, "Listener retained: ${entry.packageName}/${entry.provider}")
             }
             deliver(entry, SystemClock.elapsedRealtime())
@@ -583,6 +583,8 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     }
                 }
             }
+            // Keep the proven polling fallback while investigating rc1 resume failures.
+            // It also refreshes remote preferences if their change notification is missed.
             handler.postDelayed(this, 1000L)
         }
     }
@@ -708,7 +710,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
 
     // Bounded diagnostic state transitions only; never record coordinates or credentials.
     private fun diagnostic(entry: Registration, state: String) {
-        if (!LOG_DELIVERY_DIAGNOSTICS) return
+        if (entry.packageName != DIAGNOSTIC_PACKAGE) return
         if (entry.diagnosticState == state || entry.diagnosticCount >= 8) return
         entry.diagnosticState = state
         entry.diagnosticCount++
@@ -724,6 +726,12 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         val packages = context.packageManager.getPackagesForUid(uid)?.toSet() ?: return null
         if (MANAGER_APP_PACKAGE_NAME in packages) return null
         return if (requested != null) requested.takeIf { it in packages } else packages.firstOrNull()
+    }
+
+    private fun statusPackage(context: Context, uid: Int): String? {
+        val packages = context.packageManager.getPackagesForUid(uid)?.toSet() ?: return null
+        if (usesRealLocationSwitch(packages)) return null
+        return appPackage(context, uid)
     }
 
     private fun contextOf(service: Any?): Context? {
