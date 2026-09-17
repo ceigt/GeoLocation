@@ -70,6 +70,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         minimumDistance: Float = 0f
     ) {
         val delivery = LocationDeliveryPolicy<android.location.Location>(budget, minimumDistance) { a, b -> a.distanceTo(b) }
+        val initialFix = InitialFixWindow(packageName, if (gnss) "_gnss" else provider, SystemClock.elapsedRealtime())
         val token: IBinder = listener.asBinder()
         val key = Key(token, if (gnss) "_gnss" else provider)
         val death = IBinder.DeathRecipient { handler.post { remove(key, this) } }
@@ -349,6 +350,10 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         synchronized(entry) {
             if (guarded[entry.key] !== entry) return@synchronized emptyList()
             val playing = active()
+            if (playing && entry.initialFix.remaining(SystemClock.elapsedRealtime()) > 0L) {
+                diagnostic(entry, "initial-fix-wait/native")
+                return@synchronized emptyList()
+            }
             val candidates = if (!playing) locations else locations.mapNotNull { location ->
                 SystemLocationPrivacy.replace(entry.service, entry.uid, entry.pid, entry.provider,
                     location, entry.packageName, ::reportFailure)
@@ -519,7 +524,10 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             if (entry.packageName == DIAGNOSTIC_PACKAGE) {
                 module.log(Log.INFO, tag, "Listener retained: ${entry.packageName}/${entry.provider}")
             }
-            deliver(entry, SystemClock.elapsedRealtime())
+            val now = SystemClock.elapsedRealtime()
+            val remaining = entry.initialFix.remaining(now)
+            if (remaining == 0L) deliver(entry, now)
+            else handler.postDelayed({ deliver(entry, SystemClock.elapsedRealtime()) }, remaining)
         }
     }
 
@@ -591,6 +599,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
 
     private fun deliver(entry: Registration, now: Long) = synchronized(entry) {
         if (!active() || !entry.budget.due(now) || guarded[entry.key] !== entry) return@synchronized
+        if (entry.initialFix.remaining(now) > 0L) return@synchronized
         isolateHook({ remove(entry.key, entry); reportFailure(it) }) {
             // This call runs on our own thread with system identity, so the external
             // query adapter above leaves the actual switch value unchanged.

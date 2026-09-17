@@ -2,11 +2,11 @@
 package io.github.ceigt.geolocation.xposed.hooks
 
 import android.location.Location
+import android.content.Context
 import android.location.LocationManager
 import android.net.wifi.WifiInfo
 import android.os.Binder
 import android.os.Build
-import android.os.Process
 import android.telephony.CellInfo
 import android.util.Log
 import io.github.ceigt.geolocation.xposed.utils.LocationUtil
@@ -347,7 +347,7 @@ class SystemServicesHooks(
 
         hookAll(wifiServiceClass, "getWifiEnabledState") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofBinderCaller()) {
+            if (shouldSpoofWifiCaller(chain.thisObject)) {
                 reportOnce("Wi-Fi state synthesized for third-party location clients")
                 3 // WifiManager.WIFI_STATE_ENABLED
             } else {
@@ -357,17 +357,17 @@ class SystemServicesHooks(
 
         hookAll(wifiServiceClass, "isScanAlwaysAvailable") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofBinderCaller()) true else result
+            if (shouldSpoofWifiCaller(chain.thisObject)) true else result
         }
 
         hookAll(wifiServiceClass, "startScan") { chain ->
             val result = chain.proceed()
-            if (targetPackageFrom(chain.args) != null) true else result
+            if (shouldSpoofWifiCaller(chain.thisObject) && targetPackageFrom(chain.args) != null) true else result
         }
 
         hookAll(wifiServiceClass, "getScanResults") { chain ->
             val result = chain.proceed()
-            val targetPackage = targetPackageFrom(chain.args)
+            val targetPackage = if (shouldSpoofWifiCaller(chain.thisObject)) targetPackageFrom(chain.args) else null
             if (targetPackage != null && result != null) {
                 // Android 15's Binder service returns ParceledListSlice, not List. Returning a raw
                 // list here breaks unmarshalling in clients and is commonly surfaced as a generic
@@ -383,7 +383,7 @@ class SystemServicesHooks(
 
         hookAll(wifiServiceClass, "getConnectionInfo") { chain ->
             val result = chain.proceed()
-            if (shouldSpoofArgs(chain.args)) {
+            if (shouldSpoofWifiCaller(chain.thisObject) && shouldSpoofArgs(chain.args)) {
                 // TODO: These Wi-Fi identity values are hardcoded as a temporary fallback.
                 // Expose them as user-configurable settings in the manager app.
                 logSystemLocationEvent { "Replaced Wi-Fi connection info while spoofing." }
@@ -407,10 +407,19 @@ class SystemServicesHooks(
         reportOnce("Unable to construct virtual Wi-Fi scan payload: ${it.javaClass.simpleName}")
     }.getOrNull()
 
-    private fun shouldSpoofBinderCaller(): Boolean {
+    private fun shouldSpoofWifiCaller(service: Any?): Boolean {
         val config = PreferencesUtil.snapshot()
-        return config.enableSystemHooks && config.isPlaying &&
-            Binder.getCallingUid() >= Process.FIRST_APPLICATION_UID
+        if (!config.enableSystemHooks || !config.isPlaying || service == null) return false
+        return runCatching {
+            val uid = Binder.getCallingUid()
+            val context = findField(service.javaClass, "mContext")?.get(service) as? Context
+                ?: return@runCatching false
+            val packages = context.packageManager.getPackagesForUid(uid)?.toSet().orEmpty()
+            isWifiLocationClient(uid, packages)
+        }.getOrElse {
+            reportOnce("Wi-Fi caller identity unavailable: ${it.javaClass.simpleName}")
+            false
+        }
     }
 
     private fun hookGeofence(classLoader: ClassLoader) {

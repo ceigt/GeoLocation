@@ -312,6 +312,18 @@ private fun createWebMapController(
             }
         }
         addJavascriptInterface(WebMapBridge(callbacks), JS_BRIDGE_NAME)
+        webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
+                // Never log the raw console text: SDK errors may include the API key or URL.
+                val text = message?.message().orEmpty()
+                val code = Regex("Google Maps JavaScript API (?:error|warning): ([A-Za-z]{1,64})")
+                    .find(text)?.groupValues?.get(1)
+                if (code != null) {
+                    android.util.Log.w("GeoLocationMap", "Google Maps: $code")
+                }
+                return true
+            }
+        }
     }
 
     val html = context.assets.open(config.provider.assetPath).bufferedReader().use { it.readText() }
@@ -433,6 +445,12 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
 
     @JavascriptInterface
     fun onMapError() = mainHandler.post { callbacks.onError() }
+
+    @JavascriptInterface
+    fun onMapDiagnostic(code: String) {
+        val safeCode = code.takeIf { it.matches(Regex("[A-Za-z]{1,64}")) } ?: "Unknown"
+        android.util.Log.w("GeoLocationMap", "Google Maps: $safeCode")
+    }
 
     @JavascriptInterface
     fun onMapServiceQuotaExceeded() = mainHandler.post { callbacks.onQuotaExceeded() }

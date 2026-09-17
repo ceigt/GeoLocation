@@ -18,6 +18,10 @@
     const withMap=action=>{ if(map) action(); else pending.push(action); };
     const latLng=(lat,lng)=>({lat:Number(lat),lng:Number(lng)});
     const quotaError=value=>/OVER_QUERY_LIMIT|RESOURCE_EXHAUSTED|QUOTA/i.test(String(value||''));
+    window.gm_authFailure=()=>{
+        callAndroid('onMapDiagnostic','AuthFailure');
+        callAndroid('onMapError');
+    };
 
     window.TraceMap={
         center(latitude,longitude,zoom){ withMap(()=>{ map.panTo(latLng(latitude,longitude)); map.setZoom(Number(zoom)); }); },
@@ -64,7 +68,7 @@
     const api=document.createElement('script');
     api.src='https://maps.googleapis.com/maps/api/js?key=__GOOGLE_MAPS_API_KEY__&loading=async&callback=initGoogleTraceMap';
     api.async=true;
-    api.onerror=()=>callAndroid('onMapError');
+    api.onerror=()=>{ callAndroid('onMapDiagnostic','ScriptLoadFailure'); callAndroid('onMapError'); };
     document.head.appendChild(api);
 })();
 </script>

@@ -116,6 +116,11 @@ object LocationUtil {
             fakeLocation.speed = speed
         }
 
+        val adjustedSpeed = compatibleSpeed(targetPackage, fakeLocation.speed)
+        if (adjustedSpeed != fakeLocation.speed) {
+            fakeLocation.speed = adjustedSpeed
+        }
+
         if (config.useSpeedAccuracy) {
             fakeLocation.speedAccuracyMetersPerSecond = speedAccuracy
         }
