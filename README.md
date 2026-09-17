@@ -17,13 +17,10 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 - 地图和收藏统一以 WGS-84 保存；每个已选择的目标应用可单独输出 WGS-84、GCJ-02 或 BD-09。在“受影响的应用”页面点击绿色坐标系标签即可切换。
 - 外部广播控制默认关闭，无订阅、遥测和远程配置服务。
 
-## 2.1.4 稳定性修复
-
-修复已知问题，提高模块稳定性。
 
 ## 安装
 
-1. 安装 [2.1.4 正式 Release](https://github.com/ceigt/GeoLocation/releases/tag/20104-2.1.4) 附件中的正式签名 APK，Android 11 或更高版本。
+1. 安装 [Release](https://github.com/ceigt/GeoLocation/releases) 附件中的正式签名 APK，Android 11 或更高版本。
 2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
 3. 应用级模式在“受影响的应用”中选择目标；系统级模式只需在 LSPosed 中勾选 System Framework、Android System 和 Phone Services。切换作用域后重启设备。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。
