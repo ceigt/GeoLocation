@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">GeoLocation</string>
+    <string name="system_hooks_unsupported_version">System-level Hook is verified on Android 12 through Android 16. Use App-level Hook or Mock Provider on this Android version.</string>
 
     <string name="description">a map-first location testing workspace</string>
     <string name="nav_apps">Apps</string>
@@ -13,7 +14,6 @@
     <string name="sponsor_entry_title">Support development</string>
     <string name="sponsor_entry_summary">Voluntarily support ongoing maintenance</string>
     <string name="sponsor_dialog_summary">If GeoLocation helps with your testing or development, voluntary support is welcome to help maintain the project. Support does not unlock features or affect normal use.</string>
-    <string name="sponsor_wechat_qr">WeChat support QR code</string>
     <string name="sponsor_disclaimer">No donation or payment address is configured in this independent build.</string>
 
     <string name="language_system">System default</string>
@@ -32,12 +32,8 @@
     <string name="disclaimer_decline">Exit</string>
 
     <string name="cd_back">Back</string>
-    <string name="cd_navigate_back">Navigate back</string>
-    <string name="cd_menu">Menu</string>
     <string name="cd_center">Center</string>
     <string name="cd_options">Options</string>
-    <string name="cd_play">Play</string>
-    <string name="cd_stop">Stop</string>
     <string name="cd_delete">Delete</string>
     <string name="cd_app_icon">%1$s icon</string>
     <string name="cd_search_place">Search place</string>
@@ -50,10 +46,6 @@
     <string name="screen_target_apps">Affected Apps</string>
     <string name="screen_about">About</string>
 
-    <string name="drawer_navigation">Navigation</string>
-    <string name="drawer_app_info">App Info</string>
-    <string name="drawer_subtitle">Spoof your location easily</string>
-    <string name="drawer_version">Version %1$s</string>
 
     <string name="category_language">Language</string>
     <string name="category_notifications">Notifications</string>
@@ -81,9 +73,7 @@
     <string name="setting_map_ak_open_console">Open console</string>
     <string name="setting_map_ak_apply_step_two">2. Create a Browser-side (JavaScript API) application and enable Javascript API, JS Place Search, JS Reverse Geocoding, and jsapi base map.</string>
     <string name="setting_map_ak_apply_step_three">3. Add this host to the Referer whitelist:</string>
-    <string name="setting_map_ak_copy_host">Copy Referer host</string>
     <string name="setting_map_ak_save">Save and reload map</string>
-    <string name="setting_map_ak_saved">Map AK saved. The map is reloading.</string>
     <string name="setting_map_cache_title">Web map cache</string>
     <string name="setting_map_cache_description">Cache is kept until you choose to clear it. No automatic cleanup runs in the background.</string>
     <string name="setting_map_cache_clear">Clear map cache</string>
@@ -116,7 +106,6 @@
     <string name="system_hooks_scope_required_message">Open your Xposed manager, then open GeoLocation → Scope and select: %1$s. Return here after saving. For safety, this app does not request or change scope itself.</string>
     <string name="system_hooks_target_app_required_title">Select a target app first</string>
     <string name="system_hooks_target_app_required_message">System-level Hook also needs to run inside each target app so it can replace vendor SDK results used by WeChat, WeCom, Alipay, and similar apps. Select at least one app under Affected apps and keep it selected in the LSPosed scope, then enable System-level Hook again.</string>
-    <string name="setting_more_info">More information about %1$s</string>
     <string name="setting_disable">Disable %1$s</string>
     <string name="setting_enable">Enable %1$s</string>
     <string name="setting_adjust_value">Adjust %1$s value</string>
@@ -151,13 +140,25 @@
     <string name="map_add_to_favorites">Add to Favorites</string>
     <string name="map_clear_location">Clear Location</string>
     <string name="map_status_active">Simulation requested</string>
+    <string name="map_status_selected">Location selected</string>
+    <string name="map_start_simulation">Start</string>
+    <string name="map_stop_simulation">Stop</string>
+    <string name="map_waiting_cancel">Waiting · Cancel</string>
+    <string name="map_my_location">My location</string>
+    <string name="favorite_information">Favorite details</string>
+    <string name="mock_provider_start_failed">Could not start Mock Provider. Check the mock location app selection and location permission.</string>
+    <string name="hook_status_sync_failed">Settings sync failed; retrying automatically</string>
+    <string name="hook_status_waiting">Waiting for the module; settings are not synchronized yet</string>
+    <string name="hook_status_syncing">Synchronizing settings</string>
+    <string name="hook_status_unverified">Simulation requested; verify the result in the target app</string>
+    <string name="simulation_request_submitted">Simulation request submitted. Check the sync status and verify the result in the target app.</string>
     <string name="map_status_stopped">Stopped</string>
     <string name="map_status_active_hint">Configuration submitted; verify the location inside the target app.</string>
     <string name="map_status_waiting">Choose a point on the map</string>
     <string name="map_status_hint">Tap the map to choose a location to simulate.</string>
     <string name="map_status_coordinates">Lat %1$.6f  Lon %2$.6f</string>
     <string name="map_status_address">Address: %1$s</string>
-    <string name="map_status_address_loading">Resolving address...</string>
+    <string name="map_status_address_loading">Resolving address…</string>
     <string name="map_status_address_unavailable">Address unavailable for this point.</string>
     <string name="map_search_placeholder">Search a place</string>
     <string name="map_search_empty">Type a place name first.</string>
@@ -168,7 +169,7 @@
     <string name="mock_provider_channel_name">Mock Provider compatibility</string>
     <string name="mock_provider_notification_text">Mock Provider compatibility mode is running</string>
     <string name="toast_user_location_not_available">User location not available</string>
-    <string name="map_updating">Updating Map...</string>
+    <string name="map_updating">Updating Map…</string>
 
     <string name="field_name">Name</string>
     <string name="field_latitude">Latitude</string>
@@ -180,9 +181,13 @@
 
     <string name="favorites_empty">No favorites added.</string>
     <string name="target_apps_search_label">Search apps or package names</string>
-    <string name="target_apps_selected_count">%1$d selected</string>
+    <plurals name="target_apps_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <string name="target_apps_coordinate_system">Output: %1$s · tap to change</string>
     <string name="target_apps_show_system_apps">Show system apps</string>
+    <string name="target_apps_show_system_apps_description">Include system components in the selectable list</string>
     <string name="target_apps_system_framework">System Framework</string>
     <string name="target_apps_scope_only">LSPosed scope (read-only)</string>
     <string name="target_apps_module_inactive">Module is not active. Enable GeoLocation in your Xposed manager to choose target apps.</string>
@@ -198,7 +203,6 @@
     <string name="permissions_permanently_denied">You have permanently denied location permissions. Please enable them from settings and restart the app.</string>
     <string name="permissions_open_settings">Open Settings</string>
 
-    <string name="about_description">GeoLocation is provided only for lawful, authorized testing, development debugging, learning, and research.\n\nDo not use this app to bypass platform rules, falsify attendance or check-ins, obtain improper benefits, disrupt services, infringe others\' rights, or conduct any illegal activity.\n\nBefore using location simulation, make sure you have permission for the target device, account, app, and scenario. You are solely responsible for how you use this app and for any consequences arising from that use.</string>
     <string name="setting_save_failed">Could not save setting. Please retry.</string>
     <string name="setting_save_requested">Save requested. Any failure will be shown here.</string>
 </resources>

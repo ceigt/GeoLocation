@@ -4,18 +4,32 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
 /** A failed write must not cancel subsequent saves or reverse their order. */
-internal class SettingsWriter(scope: CoroutineScope, private val onFailure: (Exception) -> Unit) {
-    private val queue = Channel<suspend () -> Unit>(64)
-    private val worker = scope.launch {
+internal class SettingsWriter(private val onFailure: (Exception) -> Unit) {
+    // Settings are durable user actions. A ViewModel cancellation must not interrupt an already
+    // accepted write, and a short burst of map taps must not silently overflow a bounded channel.
+    private val workerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val queue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+    private val worker = workerScope.launch {
         for (operation in queue) {
-            try { withContext(Dispatchers.IO) { operation() } }
-            catch (cancelled: CancellationException) { throw cancelled }
+            try { operation() }
+            catch (cancelled: CancellationException) {
+                if (!currentCoroutineContext().isActive) throw cancelled
+                onFailure(IllegalStateException("Setting write was cancelled", cancelled))
+            }
             catch (error: Exception) { onFailure(error) }
         }
     }
-    fun enqueue(operation: suspend () -> Unit) {
-        if (!queue.trySend(operation).isSuccess) onFailure(IllegalStateException("Settings queue unavailable"))
+    init {
+        worker.invokeOnCompletion { workerScope.cancel() }
+    }
+    fun enqueue(operation: suspend () -> Unit): Boolean {
+        val accepted = queue.trySend(operation).isSuccess
+        if (!accepted) onFailure(IllegalStateException("Settings queue unavailable"))
+        return accepted
     }
     fun close() { queue.close() }
-    suspend fun join() = worker.join()
+    suspend fun join() {
+        worker.join()
+        workerScope.cancel()
+    }
 }

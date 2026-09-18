@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -273,7 +274,7 @@ fun SettingsScreen(
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
                 is SystemHooksEvent.UnsupportedSystemVersion ->
-                    snackbarHostState.showSnackbar("全局系统模式需要 Android 12 或更高版本；当前系统请使用应用模式或 Mock Provider")
+                    snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_unsupported_version))
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
                 is SystemHooksEvent.TargetAppScopeRequired ->
@@ -551,7 +552,7 @@ fun SettingsBottomSheet(
         settingsViewModel.systemHooksEvents.collect { event ->
             when (event) {
                 is SystemHooksEvent.UnsupportedSystemVersion ->
-                    snackbarHostState.showSnackbar("全局系统模式需要 Android 12 或更高版本；当前系统请使用应用模式或 Mock Provider")
+                    snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_unsupported_version))
                 is SystemHooksEvent.ModuleNotActive ->
                     snackbarHostState.showSnackbar(context.getString(R.string.system_hooks_module_inactive))
                 is SystemHooksEvent.TargetAppScopeRequired ->
@@ -1110,7 +1111,7 @@ private fun LanguageSettingItem(
         ) {
             Row(
                 modifier = Modifier
-                    .menuAnchor()
+                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
                     .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {

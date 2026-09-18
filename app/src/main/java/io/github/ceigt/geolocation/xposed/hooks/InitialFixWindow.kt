@@ -1,5 +1,7 @@
 package io.github.ceigt.geolocation.xposed.hooks
 
+import io.github.ceigt.geolocation.xposed.utils.CompatibilityProfiles
+
 /**
  * WeCom registers its location listener immediately before its GNSS listener and can reject a
  * stationary fix that reaches its SDK before satellite state. Keep this window shorter than the
@@ -10,9 +12,7 @@ internal class InitialFixWindow(
     provider: String,
     private val registeredAt: Long
 ) {
-    private val delayMillis = if (
-        packageName == "com.tencent.wework" && provider in setOf("gps", "passive")
-    ) 20L else 0L
+    private val delayMillis = CompatibilityProfiles.initialFixDelay(packageName, provider)
 
     fun remaining(now: Long): Long = (delayMillis - (now - registeredAt)).coerceAtLeast(0L)
 }

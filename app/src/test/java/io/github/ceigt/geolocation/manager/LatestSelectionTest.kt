@@ -11,7 +11,7 @@ class LatestSelectionTest {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val saved = mutableListOf<String>()
-        val writer = SettingsWriter(this) { throw AssertionError(it) }
+        val writer = SettingsWriter { throw AssertionError(it) }
         val selection = LatestSelection<String>(writer::enqueue, {
             if (it == "system") { entered.complete(Unit); release.await() }
             true
@@ -27,7 +27,7 @@ class LatestSelectionTest {
         val failed = CompletableDeferred<Unit>()
         val failures = mutableListOf<Exception>()
         val saved = mutableListOf<String>()
-        val writer = SettingsWriter(this) { failures.add(it); failed.complete(Unit) }
+        val writer = SettingsWriter { failures.add(it); failed.complete(Unit) }
         val selection = LatestSelection<String>(writer::enqueue, { true }, {
             if (it == "system") error("disk failure")
             saved.add(it)

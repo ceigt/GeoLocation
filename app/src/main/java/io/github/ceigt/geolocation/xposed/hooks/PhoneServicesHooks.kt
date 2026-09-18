@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.github.ceigt.geolocation.xposed.hooks
 
 import android.telephony.CellInfo

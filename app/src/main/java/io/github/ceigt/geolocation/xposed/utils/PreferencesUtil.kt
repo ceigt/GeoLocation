@@ -253,5 +253,6 @@ object PreferencesUtil {
         val appCoordinateSystems: Map<String, CoordinateSystem> = emptyMap()
     )
 
-    private const val REFRESH_INTERVAL_NANOS = 1_000_000_000L
+    // Listener notifications are immediate; this is only a missed-notification safety net.
+    private const val REFRESH_INTERVAL_NANOS = 10_000_000_000L
 }

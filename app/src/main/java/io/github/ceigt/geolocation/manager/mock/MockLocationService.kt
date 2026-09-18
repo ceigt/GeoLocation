@@ -167,19 +167,21 @@ class MockLocationService : Service() {
         if (destroyed || !currentState.canSpoof) return false
         val point = state.location ?: return false
         val fix = MockFixFactory.create(point, state.accuracy, state.parameters)
-        var pushed = false
+        val pushedProviders = mutableSetOf<String>()
         TARGET_PROVIDERS.forEach { provider ->
             val providerReady = ensureMockProvider(provider)
             if (providerReady) {
                 runCatching {
                     locationManager.setTestProviderLocation(provider, Location(fix).apply { this.provider = provider })
-                    pushed = true
+                    pushedProviders += provider
                 }.onFailure {
                     Log.w(TAG, "Could not set mock location for $provider: ${it.message}")
                 }
             }
         }
-        return pushed
+        // Reporting RUNNING after only one provider succeeds is misleading: clients pinned to the
+        // failed provider receive no fix. Treat a partial update as a failed tick and retry/repair.
+        return pushedProviders.size == TARGET_PROVIDERS.size
     }
 
     private fun repairMockLocationAppOp(): Boolean {
@@ -255,15 +257,6 @@ class MockLocationService : Service() {
         .setSilent(true)
         .build()
 
-    private fun readDouble(
-        prefs: android.content.SharedPreferences,
-        key: String,
-        default: Double
-    ): Double {
-        val bits = prefs.getLong(key, java.lang.Double.doubleToRawLongBits(default))
-        return java.lang.Double.longBitsToDouble(bits)
-    }
-
     private data class MockState(
         val canSpoof: Boolean,
         val location: LastClickedLocation?,
@@ -291,8 +284,6 @@ class MockLocationService : Service() {
         private const val FOREGROUND_UPDATE_INTERVAL_MS = 1_000L
         private const val SCREEN_OFF_UPDATE_INTERVAL_MS = 5_000L
         private const val DEFAULT_MOCK_ACCURACY_METERS = 5f
-        private const val ROOT_REPAIR_TIMEOUT_SECONDS = 8L
-
         private val TARGET_PROVIDERS = listOf(
             LocationManager.GPS_PROVIDER,
             FUSED_PROVIDER
@@ -309,7 +300,8 @@ class MockLocationService : Service() {
                     ContextCompat.startForegroundService(appContext, intent)
                 } else {
                     runtimeState.value = RuntimeState.STOPPED
-                    appContext.stopService(Intent(appContext, MockLocationService::class.java))
+                    val serviceIntent = Intent(appContext, MockLocationService::class.java)
+                    appContext.stopService(serviceIntent)
                 }
             } catch (e: Exception) {
                 if (enabled) recordFailure(appContext)

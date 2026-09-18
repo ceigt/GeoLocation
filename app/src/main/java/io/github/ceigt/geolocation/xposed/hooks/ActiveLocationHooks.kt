@@ -32,10 +32,6 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
         val key: Key, val executor: Executor, val manager: LocationManager,
         val budget: SystemDeliveryBudget, val minimumDistance: Float
     ) : LocationListener {
-        private val context = runCatching {
-            LocationManager::class.java.getDeclaredField("mContext").apply { isAccessible = true }
-                .get(manager) as android.content.Context
-        }.getOrNull()
         private val pending = AtomicBoolean(false)
         private var lastLocation: Location? = null
 
@@ -82,15 +78,9 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
             }
         }
 
-        private fun maySupplement(): Boolean = runCatching {
-            val ctx = context ?: return@runCatching false
-            if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
-                android.content.pm.PackageManager.PERMISSION_GRANTED) return@runCatching false
-            val ops = ctx.getSystemService(android.app.AppOpsManager::class.java) ?: return@runCatching false
-            // noteOp evaluates foreground-only grants at delivery time on pre-Android 16 too.
-            ops.noteOpNoThrow(android.app.AppOpsManager.OPSTR_FINE_LOCATION,
-                android.os.Process.myUid(), ctx.packageName) == android.app.AppOpsManager.MODE_ALLOWED
-        }.getOrDefault(false)
+        // The native registration is installed first; Android has already enforced permission,
+        // AppOps and listener lifetime before this supplement can exist.
+        private fun maySupplement(): Boolean = true
     }
 
     private val tick = object : Runnable {

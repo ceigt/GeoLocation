@@ -249,11 +249,14 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private fun removeFromScope(service: XposedService, packageName: String) {
+        setPending(packageName, true)
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { service.removeScope(listOf(packageName)) }
             } catch (e: XposedService.ServiceException) {
                 _events.tryEmit(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
+            } finally {
+                setPending(packageName, false)
             }
             refreshScope()
         }
@@ -287,9 +290,9 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
                 service.scope.toSet()
             } catch (e: XposedService.ServiceException) {
                 _events.tryEmit(TargetAppsEvent.ScopeRequestFailed(e.message ?: e.toString()))
-                _uiState.value.selectedPackages
+                null
             }
-        }
+        } ?: return
 
         _uiState.update { state ->
             state.copy(

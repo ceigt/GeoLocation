@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +59,7 @@ import io.github.ceigt.geolocation.manager.ui.map.LoadingState
 import io.github.ceigt.geolocation.manager.ui.map.MapViewModel
 import io.github.ceigt.geolocation.manager.ui.map.PlaceSearchResult
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.ArrayDeque
@@ -122,23 +124,28 @@ private fun ActiveWebMapContainer(
     val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
     val currentIsPlaying by rememberUpdatedState(uiState.isPlaying)
     val currentOnMapInteraction by rememberUpdatedState(onMapInteraction)
-    val config = requestedConfig.withBuildDefaults()
+    val config = requestedConfig.normalized()
     val callbacks = remember { WebMapCallbacks() }
     val controller = remember(context, config) {
         createWebMapController(context, callbacks, config)
     }
     val loadErrorMessage = stringResource(R.string.map_load_error)
     var errorShown by remember(config) { mutableStateOf(false) }
+    var loadCompleted by remember(config) { mutableStateOf(false) }
 
     LaunchedEffect(config) {
         mapViewModel.setLoadingStarted()
+        delay(MAP_LOAD_TIMEOUT_MS)
+        if (!loadCompleted) callbacks.onError()
     }
 
     callbacks.onReady = {
+        loadCompleted = true
         controller.markReady()
         mapViewModel.setLoadingFinished()
     }
     callbacks.onError = {
+        loadCompleted = true
         mapViewModel.setLoadingFinished()
         if (!errorShown) {
             errorShown = true
@@ -210,13 +217,10 @@ private fun ActiveWebMapContainer(
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { controller.webView },
-            update = { webView ->
-                webView.setOnTouchListener { _, event ->
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN) currentOnMapInteraction()
-                    false
-                }
-            },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().pointerInteropFilter { event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) currentOnMapInteraction()
+                false
+            }
         )
         if (uiState.loadingState == LoadingState.Loading) {
             LoadingSpinner()
@@ -283,7 +287,6 @@ private fun createWebMapController(
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = false
             allowFileAccess = false
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
@@ -460,17 +463,24 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
 
     @JavascriptInterface
     fun onMapClicked(latitude: Double, longitude: Double) = mainHandler.post {
-        callbacks.onMapClicked(latitude, longitude)
+        if (latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0) {
+            callbacks.onMapClicked(latitude, longitude)
+        }
     }
 
     @JavascriptInterface
     fun onZoomChanged(zoom: Double) = mainHandler.post {
-        callbacks.onZoomChanged(zoom)
+        if (zoom.isFinite() && zoom in 0.0..30.0) callbacks.onZoomChanged(zoom)
     }
 
     @JavascriptInterface
-    fun onSearchResults(query: String, payload: String, success: Boolean) = mainHandler.post {
-        callbacks.onSearchResults(query, payload, success)
+    fun onSearchResults(query: String, payload: String, success: Boolean) {
+        if (query.length > 1_000 || payload.length > MAX_BRIDGE_PAYLOAD_CHARS) {
+            mainHandler.post { callbacks.onSearchResults(query.take(1_000), "[]", false) }
+            return
+        }
+        mainHandler.post { callbacks.onSearchResults(query, payload, success) }
     }
 
     @JavascriptInterface
@@ -479,8 +489,13 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
         longitude: Double,
         payload: String,
         success: Boolean
-    ) = mainHandler.post {
-        callbacks.onReverseGeocode(latitude, longitude, payload, success)
+    ) {
+        val valid = latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
+            payload.length <= MAX_BRIDGE_PAYLOAD_CHARS
+        mainHandler.post {
+            callbacks.onReverseGeocode(latitude, longitude, if (valid) payload else "{}", success && valid)
+        }
     }
 }
 
@@ -581,11 +596,11 @@ private data class WebMapConfig(
     val amapSecurityCode: String,
     val googleMapsApiKey: String
 ) {
-    fun withBuildDefaults(): WebMapConfig = copy(
-        baiduMapAk = baiduMapAk.trim().ifBlank { BuildConfig.BAIDU_WEB_AK },
-        amapWebKey = amapWebKey.trim().ifBlank { BuildConfig.AMAP_WEB_KEY },
-        amapSecurityCode = amapSecurityCode.trim().ifBlank { BuildConfig.AMAP_SECURITY_CODE },
-        googleMapsApiKey = googleMapsApiKey.trim().ifBlank { BuildConfig.GOOGLE_MAPS_API_KEY }
+    fun normalized(): WebMapConfig = copy(
+        baiduMapAk = baiduMapAk.trim(),
+        amapWebKey = amapWebKey.trim(),
+        amapSecurityCode = amapSecurityCode.trim(),
+        googleMapsApiKey = googleMapsApiKey.trim()
     )
 }
 
@@ -614,3 +629,5 @@ private const val AMAP_KEY_PLACEHOLDER = "__AMAP_WEB_KEY__"
 private const val AMAP_SECURITY_PLACEHOLDER = "__AMAP_SECURITY_CODE_JSON__"
 private const val GOOGLE_KEY_PLACEHOLDER = "__GOOGLE_MAPS_API_KEY__"
 private const val JS_BRIDGE_NAME = "AndroidMap"
+private const val MAP_LOAD_TIMEOUT_MS = 15_000L
+private const val MAX_BRIDGE_PAYLOAD_CHARS = 256_000

@@ -68,6 +68,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -201,7 +202,7 @@ fun TargetAppsScreen(
                 contentColor = Color(0xFF006C5F)
             ) {
                 Text(
-                    text = stringResource(R.string.target_apps_selected_count, uiState.selectedPackages.size),
+                    text = pluralStringResource(R.plurals.target_apps_selected_count, uiState.selectedPackages.size, uiState.selectedPackages.size),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -352,7 +353,7 @@ fun TargetAppsBottomSheet(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.target_apps_show_system_apps), fontWeight = FontWeight.Medium)
-                        Text("将系统组件加入可选择列表", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.target_apps_show_system_apps_description), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = uiState.showSystemApps,
@@ -363,7 +364,7 @@ fun TargetAppsBottomSheet(
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                text = stringResource(R.string.target_apps_selected_count, uiState.selectedPackages.size),
+                text = pluralStringResource(R.plurals.target_apps_selected_count, uiState.selectedPackages.size, uiState.selectedPackages.size),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFF006C5F),

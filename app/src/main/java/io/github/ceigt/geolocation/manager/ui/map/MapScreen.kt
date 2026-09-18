@@ -69,6 +69,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -167,7 +168,7 @@ fun MapScreen(
         }
     }
     LaunchedEffect(uiState.mockFailed) {
-        if (uiState.mockFailed) snackbarHostState.showSnackbar("模拟位置启动失败，请检查模拟位置应用授权和定位权限")
+        if (uiState.mockFailed) snackbarHostState.showSnackbar(context.getString(R.string.mock_provider_start_failed))
     }
     val dismissSearch = {
         focusManager.clearFocus(force = true)
@@ -297,7 +298,7 @@ fun MapScreen(
                         mapViewModel.togglePlaying()
                         if (locationMode != LocationMode.MOCK_PROVIDER || wasPlaying) scope.launch {
                             snackbarHostState.showSnackbar(
-                                if (!wasPlaying) "已提交模拟请求，请以配置同步状态和目标应用实际结果为准" else fakeLocationUnset
+                                if (!wasPlaying) context.getString(R.string.simulation_request_submitted) else fakeLocationUnset
                             )
                         }
                     },
@@ -802,7 +803,7 @@ private fun FavoriteLocationRow(
     val deleteWidthPx = with(density) { deleteWidth.toPx() }
     var deleteVisible by remember(favorite) { mutableStateOf(false) }
     var isDragging by remember(favorite) { mutableStateOf(false) }
-    var dragOffset by remember(favorite) { mutableStateOf(0f) }
+    var dragOffset by remember(favorite) { mutableFloatStateOf(0f) }
     val targetOffset = if (isDragging) {
         dragOffset
     } else if (deleteVisible) {
@@ -918,7 +919,7 @@ private fun MapMyLocationButton(
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         MapSideActionButton(MapSideAction.MyLocation, stringResource(R.string.cd_center), onClick)
-        Text("我的位置", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF58727D), modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(R.string.map_my_location), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = Color(0xFF58727D), modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -989,7 +990,7 @@ private fun AddToFavoritesBottomSheet(
     val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
     val fields = uiState.addToFavoritesState
     HtmlModalSheet(onDismissRequest, stringResource(R.string.map_add_to_favorites)) {
-        Text("收藏信息", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF6A858D), modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        Text(stringResource(R.string.favorite_information), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF6A858D), modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
         PrototypeField(fields.name.value, { mapViewModel.updateAddToFavoritesField("name", it) }, stringResource(R.string.field_name), fields.name.errorMessageRes)
         PrototypeField(fields.latitude.value, { mapViewModel.updateAddToFavoritesField("latitude", it) }, stringResource(R.string.field_latitude), fields.latitude.errorMessageRes)
         PrototypeField(fields.longitude.value, { mapViewModel.updateAddToFavoritesField("longitude", it) }, stringResource(R.string.field_longitude), fields.longitude.errorMessageRes)
@@ -1269,10 +1270,10 @@ private fun MapSearchPanel(
 @Composable
 private fun MapPlayButton(
     isPlaying: Boolean,
-    isStarting: Boolean = false,
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStarting: Boolean = false
 ) {
     val shape = CircleShape
     val background = if (enabled) {
@@ -1314,7 +1315,7 @@ private fun MapPlayButton(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = if (isStarting) "等待就绪·取消" else if (isPlaying) "停止模拟" else "开始模拟",
+                text = if (isStarting) stringResource(R.string.map_waiting_cancel) else if (isPlaying) stringResource(R.string.map_stop_simulation) else stringResource(R.string.map_start_simulation),
                 style = MaterialTheme.typography.titleMedium,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
@@ -1391,7 +1392,7 @@ private fun MapLocationInfo(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = if (isPlaying) stringResource(R.string.map_status_active) else "已选择位置",
+            text = if (isPlaying) stringResource(R.string.map_status_active) else stringResource(R.string.map_status_selected),
             style = MaterialTheme.typography.labelSmall,
             color = if (isPlaying) Color(0xFFF14E66) else Color(0xFF168F8A),
             fontWeight = FontWeight.SemiBold

@@ -19,6 +19,7 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.security.SecureRandom
 
 internal fun selectSystemTargetPackage(
     packages: Set<String>,
@@ -34,8 +35,10 @@ internal fun selectSystemTargetPackage(
 
     // Explicit third-party entries win so their coordinate selection is honored. System-only
     // scope entries are bookkeeping and must never mask the actual receiving application.
-    return packages.firstOrNull { it in configuredTargets && isThirdParty(it) }
-        ?: packages.firstOrNull(::isThirdParty)
+    val explicit = packages.filter { it in configuredTargets && isThirdParty(it) }
+    if (explicit.size == 1) return explicit.single()
+    if (explicit.size > 1) return null
+    return packages.filter(::isThirdParty).singleOrNull()
 }
 
 class SystemServicesHooks(
@@ -55,9 +58,20 @@ class SystemServicesHooks(
     private val hookedWifiServiceClasses = Collections.newSetFromMap(ConcurrentHashMap<Class<*>, Boolean>())
     private val reportedSystemEvents = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     private val activeLocationHooks = SystemActiveLocationHooks(module, classLoader)
+    private val syntheticWifiIdentity by lazy {
+        val random = SecureRandom()
+        val bytes = ByteArray(5).also(random::nextBytes)
+        val bssid = (byteArrayOf(0x02) + bytes).joinToString(":") { "%02x".format(it.toInt() and 0xff) }
+        SyntheticWifiIdentity(
+            bssid = bssid,
+            ssid = "WLAN-${random.nextInt(0x1000000).toString(16).padStart(6, '0')}",
+            rssi = -45 - random.nextInt(25),
+            networkId = 1 + random.nextInt(Int.MAX_VALUE - 1)
+        )
+    }
 
     private fun reportOnce(event: String) {
-        if (reportedSystemEvents.add(event)) module.log(Log.INFO, tag, event)
+        if (reportedSystemEvents.addBounded(event)) module.log(Log.INFO, tag, event)
     }
 
     fun initHooks() {
@@ -384,14 +398,13 @@ class SystemServicesHooks(
         hookAll(wifiServiceClass, "getConnectionInfo") { chain ->
             val result = chain.proceed()
             if (shouldSpoofWifiCaller(chain.thisObject) && shouldSpoofArgs(chain.args)) {
-                // TODO: These Wi-Fi identity values are hardcoded as a temporary fallback.
-                // Expose them as user-configurable settings in the manager app.
                 logSystemLocationEvent { "Replaced Wi-Fi connection info while spoofing." }
+                val identity = syntheticWifiIdentity
                 WifiInfo.Builder()
-                    .setBssid("02:00:00:00:00:00")
-                    .setSsid("AndroidAP".toByteArray())
-                    .setRssi(-60)
-                    .setNetworkId(0)
+                    .setBssid(identity.bssid)
+                    .setSsid(identity.ssid.toByteArray())
+                    .setRssi(identity.rssi)
+                    .setNetworkId(identity.networkId)
                     .build()
             } else {
                 result
@@ -421,6 +434,13 @@ class SystemServicesHooks(
             false
         }
     }
+
+    private data class SyntheticWifiIdentity(
+        val bssid: String,
+        val ssid: String,
+        val rssi: Int,
+        val networkId: Int
+    )
 
     private fun hookGeofence(classLoader: ClassLoader) {
         val serviceClass = findClass(

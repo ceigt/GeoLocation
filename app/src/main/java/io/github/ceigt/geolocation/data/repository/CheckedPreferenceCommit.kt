@@ -1,8 +1,10 @@
 package io.github.ceigt.geolocation.data.repository
 
+import android.annotation.SuppressLint
 import android.content.SharedPreferences
 
 /** Android updates memory before reporting disk failure; restore only this write's keys. */
+@SuppressLint("ApplySharedPref")
 internal fun commitOrRestore(
     prefs: SharedPreferences,
     editor: SharedPreferences.Editor,

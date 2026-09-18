@@ -30,4 +30,18 @@ class SystemTargetSelectionTest {
             setOf("system", "android", "com.android.phone")
         ))
     }
+
+    @Test fun ambiguousSharedUidIsNotGuessed() {
+        assertNull(selectSystemTargetPackage(
+            linkedSetOf("com.example.one", "com.example.two"),
+            setOf("system", "android")
+        ))
+    }
+
+    @Test fun oneExplicitSharedUidTargetCanBeAttributed() {
+        assertEquals("com.example.two", selectSystemTargetPackage(
+            linkedSetOf("com.example.one", "com.example.two"),
+            setOf("system", "com.example.two")
+        ))
+    }
 }

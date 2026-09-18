@@ -2,6 +2,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
@@ -11,7 +12,7 @@ plugins {
 
 // Version is derived from the release tag in CI (passed via -PappVersionName=vX.Y.Z or the
 // APP_VERSION_NAME env var). Local builds fall back to the dev version below.
-val fallbackVersionName = "2.1.5"
+val fallbackVersionName = "2.1.6"
 
 fun resolveVersionName(): String {
     val provided = (project.findProperty("appVersionName") as String?)
@@ -32,12 +33,6 @@ fun resolveVersionCode(versionName: String): Int {
 val appVersionName = resolveVersionName()
 val appVersionCode = resolveVersionCode(appVersionName)
 val apkBuildDate = SimpleDateFormat("yyyyMMdd", Locale.ROOT).format(Date())
-val localPropertiesFile = rootProject.file("local.properties")
-val localProperties = Properties().apply {
-    if (localPropertiesFile.isFile) {
-        localPropertiesFile.inputStream().use(::load)
-    }
-}
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val hasGeoLocationKeystore = keystorePropertiesFile.isFile
 val keystoreProperties = Properties().apply {
@@ -76,26 +71,6 @@ android {
             // emulators. The module currently has no bundled native library of its own.
             abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
-        buildConfigField(
-            "String",
-            "BAIDU_WEB_AK",
-            "\"${localProperties.getProperty("BAIDU_WEB_AK", "")}\""
-        )
-        buildConfigField(
-            "String",
-            "AMAP_WEB_KEY",
-            "\"${localProperties.getProperty("AMAP_WEB_KEY", "")}\""
-        )
-        buildConfigField(
-            "String",
-            "AMAP_SECURITY_CODE",
-            "\"${localProperties.getProperty("AMAP_SECURITY_CODE", "")}\""
-        )
-        buildConfigField(
-            "String",
-            "GOOGLE_MAPS_API_KEY",
-            "\"${localProperties.getProperty("GOOGLE_MAPS_API_KEY", "")}\""
-        )
     }
 
     buildTypes {
@@ -132,13 +107,15 @@ android {
         }
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    bundle {
+        language {
+            enableSplit = false
+        }
     }
 
     applicationVariants.all {
@@ -147,6 +124,13 @@ android {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
                 "GeoLocation-${versionName}${debugSuffix}-${apkBuildDate}.apk"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }
 
@@ -159,7 +143,7 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.material3)
-    implementation("androidx.compose.material:material")
+    implementation(libs.androidx.material)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)

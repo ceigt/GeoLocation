@@ -38,11 +38,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _saveError = MutableStateFlow(false)
     val saveError = _saveError.asStateFlow()
     fun clearSaveError() { _saveError.value = false }
-    private val writer = SettingsWriter(viewModelScope) { error ->
+    private val writer = SettingsWriter { error ->
         android.util.Log.e("SettingsViewModel", "Setting save failed: ${error.javaClass.simpleName}")
         _saveError.value = true
     }
-    private fun enqueueSave(operation: suspend () -> Unit) = writer.enqueue(operation)
+    private fun enqueueSave(operation: suspend () -> Unit) { writer.enqueue(operation) }
     override fun onCleared() { writer.close(); super.onCleared() }
 
     private inner class Preference<T>(
@@ -316,7 +316,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun selectLocationMode(mode: LocationMode) = modeSelection.select(mode)
 
     private fun validateSystemScope(): Boolean {
-        if (android.os.Build.VERSION.SDK_INT < 31) {
+        if (!SystemHookSupport.supports(android.os.Build.VERSION.SDK_INT)) {
             _systemHooksEvents.tryEmit(SystemHooksEvent.UnsupportedSystemVersion)
             return false
         }

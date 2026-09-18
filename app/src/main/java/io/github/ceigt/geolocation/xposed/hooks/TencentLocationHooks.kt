@@ -31,7 +31,7 @@ internal class TencentLocationHooks(
     private val reportedEvents = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private fun reportOnce(event: String) {
-        if (reportedEvents.add(event)) module.log(Log.INFO, tag, event)
+        if (reportedEvents.addBounded(event)) module.log(Log.INFO, tag, event)
     }
 
     fun initHooks(loader: ClassLoader = classLoader) {

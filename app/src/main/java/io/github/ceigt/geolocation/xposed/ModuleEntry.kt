@@ -5,6 +5,8 @@ import android.util.Log
 import android.widget.Toast
 import io.github.ceigt.geolocation.data.REMOTE_PREFS_GROUP
 import io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME
+import io.github.ceigt.geolocation.data.SystemHookSupport
+import android.os.Build
 import io.github.ceigt.geolocation.xposed.hooks.isolateHook
 import io.github.ceigt.geolocation.xposed.hooks.LocationApiHooks
 import io.github.ceigt.geolocation.xposed.hooks.PhoneServicesHooks
@@ -69,6 +71,11 @@ class ModuleEntry : XposedModule() {
     override fun onSystemServerStarting(param: SystemServerStartingParam) {
         isSystemServer = true
         log(Log.INFO, TAG, "onSystemServerStarting")
+
+        if (!SystemHookSupport.supports(Build.VERSION.SDK_INT)) {
+            log(Log.WARN, TAG, "System hooks disabled on unverified SDK ${Build.VERSION.SDK_INT}")
+            return
+        }
 
         // system_server is a hooked process only when the user enabled system-level hooks (which adds
         // "system"/"android" to the module scope). Each intercept checks the current playing state

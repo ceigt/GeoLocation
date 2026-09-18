@@ -13,6 +13,7 @@ import io.github.ceigt.geolocation.data.SHARED_PREFS_FILE
 import io.github.ceigt.geolocation.data.applicationHookTargets
 import io.github.ceigt.geolocation.data.repository.PreferenceSync
 import io.github.ceigt.geolocation.data.repository.PreferencesRepository
+import io.github.ceigt.geolocation.data.repository.CredentialStore
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +48,9 @@ class App : Application(), XposedServiceHelper.OnServiceListener {
     override fun onCreate() {
         super.onCreate()
         XposedServiceHelper.registerListener(this)   // exactly once
+        applicationScope.launch {
+            CredentialStore.migratePlaintext(getSharedPreferences(SHARED_PREFS_FILE, MODE_PRIVATE))
+        }
     }
 
     @Synchronized

@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">GeoLocation</string>
+    <string name="system_hooks_unsupported_version">系统级 Hook 已验证 Android 12 至 Android 16；当前版本请使用应用级 Hook 或 Mock Provider。</string>
 
     <string name="description">面向位置测试的地图工作台</string>
     <string name="nav_apps">应用</string>
@@ -13,7 +14,6 @@
     <string name="sponsor_entry_title">赞助开发</string>
     <string name="sponsor_entry_summary">自愿支持项目后续维护</string>
     <string name="sponsor_dialog_summary">如果 GeoLocation 对你的测试或开发工作有所帮助，欢迎自愿赞助以支持后续维护。赞助不会解锁任何功能，也不会影响应用的正常使用。</string>
-    <string name="sponsor_wechat_qr">微信赞助收款码</string>
     <string name="sponsor_disclaimer">此独立版本未配置任何捐赠或付款地址。</string>
 
     <string name="language_system">跟随系统</string>
@@ -32,12 +32,8 @@
     <string name="disclaimer_decline">退出应用</string>
 
     <string name="cd_back">返回</string>
-    <string name="cd_navigate_back">返回上一页</string>
-    <string name="cd_menu">菜单</string>
     <string name="cd_center">居中</string>
     <string name="cd_options">选项</string>
-    <string name="cd_play">开始</string>
-    <string name="cd_stop">停止</string>
     <string name="cd_delete">删除</string>
     <string name="cd_app_icon">%1$s 图标</string>
     <string name="cd_search_place">搜索地点</string>
@@ -50,10 +46,6 @@
     <string name="screen_target_apps">作用应用</string>
     <string name="screen_about">关于</string>
 
-    <string name="drawer_navigation">导航</string>
-    <string name="drawer_app_info">应用信息</string>
-    <string name="drawer_subtitle">轻松模拟你的位置</string>
-    <string name="drawer_version">版本 %1$s</string>
 
     <string name="category_language">语言</string>
     <string name="category_notifications">通知</string>
@@ -81,9 +73,7 @@
     <string name="setting_map_ak_open_console">打开控制台</string>
     <string name="setting_map_ak_apply_step_two">2、创建”浏览器端(JavaScript API)“应用，并勾选：Javascript API、JS地点检索、JS逆地理编码、jsapi底图（其他随意）</string>
     <string name="setting_map_ak_apply_step_three">Referer白名单填：</string>
-    <string name="setting_map_ak_copy_host">复制 Referer 白名单</string>
     <string name="setting_map_ak_save">保存并刷新地图</string>
-    <string name="setting_map_ak_saved">地图 AK 已保存，地图正在刷新。</string>
     <string name="setting_map_cache_title">地图缓存</string>
     <string name="setting_map_cache_description">缓存会一直保留，只有点击下方按钮时才会清理，后台不会自动整理。</string>
     <string name="setting_map_cache_clear">清理地图缓存</string>
@@ -116,7 +106,6 @@
     <string name="system_hooks_scope_required_message">请打开 Xposed 管理器，进入“GeoLocation → 作用域”，勾选：%1$s。保存后返回此处再次开启。为保证安全，应用不会自行申请或修改作用域。</string>
     <string name="system_hooks_target_app_required_title">请先选择目标应用</string>
     <string name="system_hooks_target_app_required_message">系统级 Hook 也必须进入每个目标应用进程，才能替换微信、企业微信、支付宝等应用使用的厂商定位 SDK 结果。请先在“作用应用”中勾选至少一个目标应用，并在 LSPosed 作用域中保留该应用，然后再次开启系统级 Hook。</string>
-    <string name="setting_more_info">关于 %1$s 的更多信息</string>
     <string name="setting_disable">关闭 %1$s</string>
     <string name="setting_enable">开启 %1$s</string>
     <string name="setting_adjust_value">调整 %1$s 的值</string>
@@ -151,13 +140,25 @@
     <string name="map_add_to_favorites">添加到收藏</string>
     <string name="map_clear_location">清除位置</string>
     <string name="map_status_active">模拟请求已开启</string>
+    <string name="map_status_selected">已选择位置</string>
+    <string name="map_start_simulation">开始模拟</string>
+    <string name="map_stop_simulation">停止模拟</string>
+    <string name="map_waiting_cancel">等待就绪·取消</string>
+    <string name="map_my_location">我的位置</string>
+    <string name="favorite_information">收藏信息</string>
+    <string name="mock_provider_start_failed">模拟位置启动失败，请检查模拟位置应用授权和定位权限。</string>
+    <string name="hook_status_sync_failed">配置同步失败，正在自动重试</string>
+    <string name="hook_status_waiting">等待模块连接，配置尚未同步</string>
+    <string name="hook_status_syncing">配置正在同步</string>
+    <string name="hook_status_unverified">模拟请求已开启；目标应用定位尚未验证</string>
+    <string name="simulation_request_submitted">已提交模拟请求，请以配置同步状态和目标应用实际结果为准。</string>
     <string name="map_status_stopped">已停止</string>
     <string name="map_status_active_hint">配置已提交，实际定位结果请在目标应用中确认</string>
     <string name="map_status_waiting">从地图选择位置</string>
     <string name="map_status_hint">在地图上轻点，选择要模拟的位置。</string>
     <string name="map_status_coordinates">纬度 %1$.6f  经度 %2$.6f</string>
     <string name="map_status_address">地址：%1$s</string>
-    <string name="map_status_address_loading">正在解析地址...</string>
+    <string name="map_status_address_loading">正在解析地址…</string>
     <string name="map_status_address_unavailable">暂时无法解析该坐标的地址。</string>
     <string name="map_search_placeholder">搜索地点</string>
     <string name="map_search_empty">请先输入地点名称。</string>
@@ -168,7 +169,7 @@
     <string name="mock_provider_channel_name">Mock Provider 兼容模式</string>
     <string name="mock_provider_notification_text">Mock Provider 兼容模式正在运行</string>
     <string name="toast_user_location_not_available">用户位置不可用</string>
-    <string name="map_updating">正在更新地图...</string>
+    <string name="map_updating">正在更新地图…</string>
 
     <string name="field_name">名称</string>
     <string name="field_latitude">纬度</string>
@@ -180,9 +181,12 @@
 
     <string name="favorites_empty">还没有添加收藏。</string>
     <string name="target_apps_search_label">搜索应用或包名</string>
-    <string name="target_apps_selected_count">已选择 %1$d 个</string>
+    <plurals name="target_apps_selected_count">
+        <item quantity="other">已选择 %1$d 个</item>
+    </plurals>
     <string name="target_apps_coordinate_system">输出坐标系：%1$s · 点击切换</string>
     <string name="target_apps_show_system_apps">显示系统应用</string>
+    <string name="target_apps_show_system_apps_description">将系统组件加入可选择列表</string>
     <string name="target_apps_system_framework">系统框架</string>
     <string name="target_apps_scope_only">LSPosed 作用域（只读）</string>
     <string name="target_apps_module_inactive">模块未激活。请在 Xposed 管理器中启用GeoLocation以选择目标应用。</string>
@@ -198,7 +202,6 @@
     <string name="permissions_permanently_denied">你已永久拒绝位置权限。请前往设置启用权限并重启应用。</string>
     <string name="permissions_open_settings">打开设置</string>
 
-    <string name="about_description">GeoLocation仅用于合法、已授权的测试、开发调试、学习研究等场景。\n\n请勿将本应用用于绕过平台规则、虚假打卡签到、获取不当利益、干扰服务、侵犯他人权益或任何违法违规用途。\n\n使用位置模拟前，请确认你对目标设备、账号、应用和使用场景拥有合法授权。你需要自行承担因使用本应用产生的全部责任和后果。</string>
     <string name="setting_save_failed">设置保存失败，请重试。</string>
     <string name="setting_save_requested">已提交保存请求，失败时会在此提示。</string>
 </resources>

@@ -44,6 +44,7 @@ data class PlaceSearchResult(
 class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val preferencesRepository = PreferencesRepository(application)
     private var activeSearchQuery: String? = null
+    private var placeSearchTimeoutJob: Job? = null
     private var activeReverseLocation: GeoPoint? = null
     private var reverseGeocodeJob: Job? = null
     private var mapActive = false
@@ -52,7 +53,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _saveError = MutableStateFlow(false)
     val saveError = _saveError.asStateFlow()
     fun clearSaveError() { _saveError.value = false }
-    private val writer = io.github.ceigt.geolocation.manager.ui.settings.SettingsWriter(viewModelScope) { error ->
+    private val writer = io.github.ceigt.geolocation.manager.ui.settings.SettingsWriter { error ->
         pendingToggle.set(false)
         android.util.Log.e("MapViewModel", "Map save failed: ${error.javaClass.simpleName}")
         _saveError.value = true
@@ -128,10 +129,10 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             ) { requested, mock, pending, service, failed ->
                 when {
                     mock -> null
-                    failed -> "配置同步失败，正在自动重试"
-                    service == null && (requested || pending) -> "等待模块连接，配置尚未同步"
-                    pending -> "配置正在同步"
-                    requested -> "模拟请求已开启；目标应用定位尚未验证"
+                    failed -> getApplication<Application>().getString(R.string.hook_status_sync_failed)
+                    service == null && (requested || pending) -> getApplication<Application>().getString(R.string.hook_status_waiting)
+                    pending -> getApplication<Application>().getString(R.string.hook_status_syncing)
+                    requested -> getApplication<Application>().getString(R.string.hook_status_unverified)
                     else -> null
                 }
             }.collectLatest { status -> _uiState.update { it.copy(hookStatus = status) } }
@@ -173,10 +174,11 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun togglePlaying() {
         if (!pendingToggle.compareAndSet(false, true)) return
-        writer.enqueue {
+        val accepted = writer.enqueue {
             try { preferencesRepository.saveIsPlaying(!preferencesRepository.getIsPlaying()) }
             finally { pendingToggle.set(false) }
         }
+        if (!accepted) pendingToggle.set(false)
     }
 
     fun updateUserLocation(location: GeoPoint) {
@@ -191,6 +193,8 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     fun onMapExited() {
         mapActive = false
         activeSearchQuery = null
+        placeSearchTimeoutJob?.cancel()
+        placeSearchTimeoutJob = null
         activeReverseLocation = null
         reverseGeocodeJob?.cancel()
         reverseGeocodeJob = null
@@ -248,6 +252,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updatePlaceSearchQuery(query: String) {
         activeSearchQuery = null
+        placeSearchTimeoutJob?.cancel()
         _uiState.update {
             it.copy(
                 placeSearchQuery = query,
@@ -260,6 +265,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearPlaceSearch() {
         activeSearchQuery = null
+        placeSearchTimeoutJob?.cancel()
         _uiState.update {
             it.copy(
                 placeSearchQuery = "",
@@ -299,12 +305,21 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                     placeSearchErrorMessageRes = R.string.map_search_error
                 )
             }
+        } else {
+            placeSearchTimeoutJob?.cancel()
+            placeSearchTimeoutJob = viewModelScope.launch {
+                delay(MAP_REQUEST_TIMEOUT_MS)
+                if (mapActive && activeSearchQuery == requestedQuery) {
+                    onPlaceSearchFailed(requestedQuery)
+                }
+            }
         }
     }
 
     fun onPlaceSearchCompleted(query: String, results: List<PlaceSearchResult>) {
         if (!mapActive || activeSearchQuery != query) return
         if (_uiState.value.placeSearchQuery.trim() != query) return
+        placeSearchTimeoutJob?.cancel()
 
         val places = results
             .distinctBy { "${it.latitude}:${it.longitude}" }
@@ -324,6 +339,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onPlaceSearchFailed(query: String) {
         if (!mapActive || activeSearchQuery != query) return
+        placeSearchTimeoutJob?.cancel()
         _uiState.update {
             it.copy(
                 isPlaceSearchLoading = false,
@@ -472,6 +488,12 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
                         selectedLocationAddressMessageRes = R.string.map_status_address_unavailable
                     )
                 }
+            } else {
+                delay(MAP_REQUEST_TIMEOUT_MS)
+                if (mapActive && activeReverseLocation == geoPoint &&
+                    _uiState.value.isSelectedLocationAddressLoading) {
+                    onReverseGeocodeFailed(geoPoint)
+                }
             }
         }
     }
@@ -483,6 +505,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         if (!mapActive || activeReverseLocation != location) return
         if (_uiState.value.lastClickedLocation != location) return
+        reverseGeocodeJob?.cancel()
 
         val displayAddress = address?.trim()?.takeIf(String::isNotEmpty)
         _uiState.update {
@@ -502,6 +525,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     fun onReverseGeocodeFailed(location: GeoPoint) {
         if (!mapActive || activeReverseLocation != location) return
         if (_uiState.value.lastClickedLocation != location) return
+        reverseGeocodeJob?.cancel()
         _uiState.update {
             it.copy(
                 isSelectedLocationAddressLoading = false,
@@ -523,5 +547,6 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val PLACE_SEARCH_RESULT_LIMIT = 5
         const val REVERSE_GEOCODE_DEBOUNCE_MS = 400L
+        const val MAP_REQUEST_TIMEOUT_MS = 15_000L
     }
 }

@@ -2,7 +2,6 @@ package io.github.ceigt.geolocation.manager
 
 import android.content.Context
 import android.os.Bundle
-import android.app.AlertDialog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
@@ -20,13 +19,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!hasRequiredFrameworkApis()) {
-            showUnsupportedAndroidDialog()
-            return
-        }
-
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
 
         setContent {
@@ -39,24 +32,4 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showUnsupportedAndroidDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Unsupported Android version")
-            .setMessage("GeoLocation需要 Android 11 或更高版本。")
-            .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
-            .setOnDismissListener { finish() }
-            .show()
-    }
-
-    private fun hasRequiredFrameworkApis(): Boolean =
-        runCatching {
-            android.view.View::class.java.getMethod(
-                "setForceDarkAllowed",
-                java.lang.Boolean.TYPE
-            )
-            android.view.Window::class.java.getMethod(
-                "setDecorFitsSystemWindows",
-                java.lang.Boolean.TYPE
-            )
-        }.isSuccess
 }
