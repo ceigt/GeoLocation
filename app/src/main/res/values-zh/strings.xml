@@ -170,6 +170,8 @@
     <string name="mock_provider_notification_text">Mock Provider 兼容模式正在运行</string>
     <string name="toast_user_location_not_available">用户位置不可用</string>
     <string name="map_updating">正在更新地图…</string>
+    <string name="map_renderer_stopped">地图意外停止，请点击重试重新加载。</string>
+    <string name="map_retry">重试</string>
 
     <string name="field_name">名称</string>
     <string name="field_latitude">纬度</string>

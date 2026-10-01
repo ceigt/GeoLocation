@@ -12,7 +12,7 @@ plugins {
 
 // Version is derived from the release tag in CI (passed via -PappVersionName=vX.Y.Z or the
 // APP_VERSION_NAME env var). Local builds fall back to the dev version below.
-val fallbackVersionName = "2.1.6"
+val fallbackVersionName = "2.1.7"
 
 fun resolveVersionName(): String {
     val provided = (project.findProperty("appVersionName") as String?)
@@ -66,6 +66,7 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // Keep the universal APK installable on common physical devices and Android
             // emulators. The module currently has no bundled native library of its own.
@@ -74,12 +75,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            if (hasGeoLocationKeystore) {
-                signingConfig = signingConfigs["geoLocation"]
-            }
-        }
-
         release {
             isMinifyEnabled = true
             isShrinkResources = true

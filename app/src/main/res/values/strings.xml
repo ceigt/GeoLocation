@@ -170,6 +170,8 @@
     <string name="mock_provider_notification_text">Mock Provider compatibility mode is running</string>
     <string name="toast_user_location_not_available">User location not available</string>
     <string name="map_updating">Updating Map…</string>
+    <string name="map_renderer_stopped">The map stopped unexpectedly. Tap Retry to reload it.</string>
+    <string name="map_retry">Retry</string>
 
     <string name="field_name">Name</string>
     <string name="field_latitude">Latitude</string>
