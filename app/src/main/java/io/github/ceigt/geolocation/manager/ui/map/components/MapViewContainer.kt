@@ -13,6 +13,7 @@ import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -27,10 +28,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -120,11 +123,50 @@ private fun ActiveWebMapContainer(
     requestedConfig: WebMapConfig,
     onMapInteraction: () -> Unit
 ) {
+    val config = requestedConfig.normalized()
+    var generation by remember(config) { mutableStateOf(0) }
+    var recoveryAttempted by remember(config) { mutableStateOf(false) }
+    var recoveryFailed by remember(config) { mutableStateOf(false) }
+
+    if (recoveryFailed) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(stringResource(R.string.map_renderer_stopped), textAlign = TextAlign.Center)
+                TextButton(onClick = {
+                    recoveryAttempted = false
+                    recoveryFailed = false
+                    generation++
+                }) { Text(stringResource(R.string.map_retry)) }
+            }
+        }
+    } else {
+        // AndroidView's factory runs only on insertion. A new key replaces the actual View,
+        // not just the controller, when credentials/provider change or a renderer dies.
+        key(config, generation) {
+            WebMapInstance(mapViewModel, config, onMapInteraction) {
+                mapViewModel.setLoadingFinished()
+                if (recoveryAttempted) {
+                    recoveryFailed = true
+                } else {
+                    recoveryAttempted = true
+                    generation++
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WebMapInstance(
+    mapViewModel: MapViewModel,
+    config: WebMapConfig,
+    onMapInteraction: () -> Unit,
+    onRendererGone: () -> Unit
+) {
     val context = LocalContext.current
     val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
     val currentIsPlaying by rememberUpdatedState(uiState.isPlaying)
     val currentOnMapInteraction by rememberUpdatedState(onMapInteraction)
-    val config = requestedConfig.normalized()
     val callbacks = remember { WebMapCallbacks() }
     val controller = remember(context, config) {
         createWebMapController(context, callbacks, config)
@@ -153,6 +195,7 @@ private fun ActiveWebMapContainer(
         }
     }
     callbacks.onQuotaExceeded = mapViewModel::showMapQuotaDialog
+    callbacks.onRendererGone = onRendererGone
     callbacks.onInteraction = { currentOnMapInteraction() }
     callbacks.onMapClicked = { latitude, longitude ->
         currentOnMapInteraction()
@@ -300,20 +343,6 @@ private fun createWebMapController(
             safeBrowsingEnabled = true
             userAgentString = "$userAgentString GeoLocation/${BuildConfig.VERSION_NAME}"
         }
-        webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): Boolean = request?.isForMainFrame == true && request.url?.toString() != "about:blank"
-
-            override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
-            ) {
-                if (request?.isForMainFrame == true) callbacks.onError()
-            }
-        }
         addJavascriptInterface(WebMapBridge(callbacks), JS_BRIDGE_NAME)
         webChromeClient = object : android.webkit.WebChromeClient() {
             override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
@@ -329,13 +358,39 @@ private fun createWebMapController(
         }
     }
 
+    val controller = WebMapController(webView, callbacks)
+    webView.webViewClient = MapWebViewClient(controller, callbacks)
+
     val html = context.assets.open(config.provider.assetPath).bufferedReader().use { it.readText() }
         .replace(BAIDU_AK_PLACEHOLDER, Uri.encode(config.baiduMapAk))
         .replace(AMAP_KEY_PLACEHOLDER, Uri.encode(config.amapWebKey))
         .replace(AMAP_SECURITY_PLACEHOLDER, JSONObject.quote(config.amapSecurityCode))
         .replace(GOOGLE_KEY_PLACEHOLDER, Uri.encode(config.googleMapsApiKey))
     webView.loadDataWithBaseURL(APP_ORIGIN, html, "text/html", "UTF-8", null)
-    return WebMapController(webView)
+    return controller
+}
+
+internal class MapWebViewClient(
+    private val controller: WebMapController,
+    private val callbacks: WebMapCallbacks
+) : WebViewClient() {
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean =
+        request?.isForMainFrame == true && request.url?.toString() != "about:blank"
+
+    override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+        if (callbacks.active && request?.isForMainFrame == true) callbacks.onError()
+    }
+
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        if (callbacks.active) {
+            val recover = callbacks.onRendererGone
+            // A dead renderer's WebView must be removed and destroyed synchronously. It cannot
+            // be reloaded, even when Android killed it for memory rather than a crash.
+            controller.destroy(rendererGone = true)
+            recover()
+        }
+        return true
+    }
 }
 
 @Composable
@@ -360,16 +415,19 @@ private fun ManageWebViewLifecycle(controller: WebMapController) {
     }
 }
 
-private class WebMapController(val webView: WebView) {
+internal class WebMapController(val webView: WebView, private val callbacks: WebMapCallbacks) {
     private var ready = false
     private var destroyed = false
     private val pendingScripts = ArrayDeque<String>()
 
-    fun markReady() = webView.post {
-        if (destroyed || ready) return@post
-        ready = true
-        while (pendingScripts.isNotEmpty()) {
-            webView.evaluateJavascript(pendingScripts.removeFirst(), null)
+    fun markReady() {
+        if (destroyed) return
+        webView.post {
+            if (destroyed || ready) return@post
+            ready = true
+            while (pendingScripts.isNotEmpty()) {
+                webView.evaluateJavascript(pendingScripts.removeFirst(), null)
+            }
         }
     }
 
@@ -408,30 +466,39 @@ private class WebMapController(val webView: WebView) {
         if (!destroyed) webView.onPause()
     }
 
-    fun destroy() {
+    fun destroy(rendererGone: Boolean = false) {
         if (destroyed) return
         destroyed = true
+        callbacks.active = false
         ready = false
         pendingScripts.clear()
-        webView.stopLoading()
-        webView.onPause()
-        webView.removeJavascriptInterface(JS_BRIDGE_NAME)
-        webView.loadUrl("about:blank")
-        webView.clearHistory()
-        webView.removeAllViews()
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        if (!rendererGone) {
+            webView.stopLoading()
+            webView.onPause()
+            webView.removeJavascriptInterface(JS_BRIDGE_NAME)
+            webView.loadUrl("about:blank")
+            webView.clearHistory()
+            webView.removeAllViews()
+        }
         webView.destroy()
     }
 
-    private fun execute(script: String) = webView.post {
-        if (destroyed) return@post
-        val guarded = "window.TraceMap && $script;"
-        if (ready) webView.evaluateJavascript(guarded, null) else pendingScripts.addLast(guarded)
+    private fun execute(script: String) {
+        if (destroyed) return
+        webView.post {
+            if (destroyed) return@post
+            val guarded = "window.TraceMap && $script;"
+            if (ready) webView.evaluateJavascript(guarded, null) else pendingScripts.addLast(guarded)
+        }
     }
 }
 
-private class WebMapCallbacks {
+internal class WebMapCallbacks {
+    var active = true
     var onReady: () -> Unit = {}
     var onError: () -> Unit = {}
+    var onRendererGone: () -> Unit = {}
     var onQuotaExceeded: () -> Unit = {}
     var onInteraction: () -> Unit = {}
     var onMapClicked: (Double, Double) -> Unit = { _, _ -> }
@@ -442,12 +509,16 @@ private class WebMapCallbacks {
 
 private class WebMapBridge(private val callbacks: WebMapCallbacks) {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private fun post(action: () -> Unit) = mainHandler.post {
+        // JavaScript callbacks already queued by a previous page must not change the new map.
+        if (callbacks.active) action()
+    }
 
     @JavascriptInterface
-    fun onMapReady() = mainHandler.post { callbacks.onReady() }
+    fun onMapReady() = post { callbacks.onReady() }
 
     @JavascriptInterface
-    fun onMapError() = mainHandler.post { callbacks.onError() }
+    fun onMapError() = post { callbacks.onError() }
 
     @JavascriptInterface
     fun onMapDiagnostic(code: String) {
@@ -456,13 +527,13 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
     }
 
     @JavascriptInterface
-    fun onMapServiceQuotaExceeded() = mainHandler.post { callbacks.onQuotaExceeded() }
+    fun onMapServiceQuotaExceeded() = post { callbacks.onQuotaExceeded() }
 
     @JavascriptInterface
-    fun onMapInteraction() = mainHandler.post { callbacks.onInteraction() }
+    fun onMapInteraction() = post { callbacks.onInteraction() }
 
     @JavascriptInterface
-    fun onMapClicked(latitude: Double, longitude: Double) = mainHandler.post {
+    fun onMapClicked(latitude: Double, longitude: Double) = post {
         if (latitude.isFinite() && longitude.isFinite() &&
             latitude in -90.0..90.0 && longitude in -180.0..180.0) {
             callbacks.onMapClicked(latitude, longitude)
@@ -470,17 +541,17 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
     }
 
     @JavascriptInterface
-    fun onZoomChanged(zoom: Double) = mainHandler.post {
+    fun onZoomChanged(zoom: Double) = post {
         if (zoom.isFinite() && zoom in 0.0..30.0) callbacks.onZoomChanged(zoom)
     }
 
     @JavascriptInterface
     fun onSearchResults(query: String, payload: String, success: Boolean) {
         if (query.length > 1_000 || payload.length > MAX_BRIDGE_PAYLOAD_CHARS) {
-            mainHandler.post { callbacks.onSearchResults(query.take(1_000), "[]", false) }
+            post { callbacks.onSearchResults(query.take(1_000), "[]", false) }
             return
         }
-        mainHandler.post { callbacks.onSearchResults(query, payload, success) }
+        post { callbacks.onSearchResults(query, payload, success) }
     }
 
     @JavascriptInterface
@@ -493,7 +564,7 @@ private class WebMapBridge(private val callbacks: WebMapCallbacks) {
         val valid = latitude.isFinite() && longitude.isFinite() &&
             latitude in -90.0..90.0 && longitude in -180.0..180.0 &&
             payload.length <= MAX_BRIDGE_PAYLOAD_CHARS
-        mainHandler.post {
+        post {
             callbacks.onReverseGeocode(latitude, longitude, if (valid) payload else "{}", success && valid)
         }
     }

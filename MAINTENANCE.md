@@ -12,7 +12,7 @@
 1. Test Android 11–16 on at least one AOSP-like ROM and one OEM ROM.
 2. Add instrumented tests for preference migration and Mock Provider lifecycle.
 3. Add a map-provider interface so an OpenStreetMap implementation can remove the Baidu AK dependency.
-4. Harden optional external control with a signature permission before recommending it for general use.
+4. Exercise the existing external-control signature permission and opt-in boundary in instrumented tests, including rejection of differently signed callers.
 5. Track libxposed API and Android location API changes; keep system hooks opt-in.
 
 ## Issue reports

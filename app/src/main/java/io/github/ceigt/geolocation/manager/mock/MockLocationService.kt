@@ -250,7 +250,7 @@ class MockLocationService : Service() {
     }
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_launcher_foreground)
+        .setSmallIcon(R.drawable.ic_stat_location)
         .setContentTitle(getString(R.string.app_name))
         .setContentText(getString(R.string.mock_provider_notification_text))
         .setOngoing(true)
