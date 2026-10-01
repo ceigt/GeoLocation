@@ -33,7 +33,7 @@
 
 - JDK 17，Android SDK / Build Tools 36。
 - Debug 单元测试：71 项通过；Release 单元测试：71 项通过。
-- Release Lint：0 errors、34 warnings；警告主要涉及依赖版本提示、系统反射 API、KTX 写法等，未宣称全部清零。
+- Release Lint：0 errors、33 warnings、1 informational finding；警告主要涉及依赖版本提示、系统反射 API、KTX 写法等，未宣称全部清零。
 - 原包名、非调试、压缩优化的 `2.1.7-rc1` Release 构建通过；本机产物未签名，供正式签名步骤使用。
 - 回归客户端及其 Android 测试客户端构建通过；本轮未执行全部定位客户端场景。
 - 独立 `.preview` 包在上述手机上运行 3 项仪器测试，全部通过：
