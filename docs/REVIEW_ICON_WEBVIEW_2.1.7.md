@@ -23,6 +23,7 @@
 | Debug 会沿用本地正式签名配置 | Debug 使用测试证书，正式密钥仅用于非调试 Release。覆盖正式版的候选包仍需原正式密钥。 |
 | 正式工作流的 setup-java 引用不存在 | 改用已从官方仓库核验的 v5 完整提交 `b6effb05e454b25005698d916606bdc6ffcbf961`。 |
 | 上传任务未检出仓库，也未设置 GH_REPO | 显式设置目标仓库，保证 gh release 命令能定位仓库。 |
+| Linux 构建脚本未标记可执行 | 恢复 gradlew 的 Git 可执行位；首次云端验证的 Permission denied 已定位并修复。 |
 | 只有手动发布才运行检查 | 新增 PR / main 提交的只读验证流程，运行单元测试、Release Lint 和构建验证；该流程不签名、不发布。 |
 
 图标分层遵循 [Android 自适应图标说明](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)。渲染进程的处理遵循 [WebView 终止恢复要求](https://developer.android.com/develop/ui/views/layout/webapps/handle-termination)。
