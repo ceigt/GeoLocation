@@ -169,62 +169,39 @@ internal class TencentLocationHooks(
         }
     }
 
-    private fun wrapLocation(original: Any, locationClass: Class<*>): Any =
-        Proxy.newProxyInstance(
-            locationClass.classLoader,
-            arrayOf(locationClass)
-        ) { proxy, method, args ->
-            if (method.declaringClass == Any::class.java) {
-                return@newProxyInstance invokeObjectMethod(proxy, method.name, args)
-            }
-
-            val config = PreferencesUtil.snapshot()
-            if (!config.isPlaying) {
-                return@newProxyInstance invokeOriginal(method, original, args)
-            }
-
-            // Tencent exposes WGS-84/GCJ-02 only. Convert BD-09 at this interface boundary.
-            val point = synchronized(LocationUtil) {
-                LocationUtil.updateLocation(config)
-                val lat = LocationUtil.latitude
-                val lon = LocationUtil.longitude
-                if (config.appCoordinateSystems[LocationUtil.targetPackageName] == CoordinateSystem.BD09) {
-                    CoordinateTransform.bd09ToGcj02(lat, lon)
-                } else GeoPoint(lat, lon)
-            }
-            when (method.name) {
-                "getLatitude" -> point.latitude
-                "getLongitude" -> point.longitude
-                "getAltitude" -> if (config.useAltitude) {
-                    LocationUtil.altitude
-                } else {
-                    invokeOriginal(method, original, args)
+    private fun wrapLocation(original: Any, locationClass: Class<*>): Any {
+        val config = PreferencesUtil.snapshot()
+        if (!config.isPlaying) return original
+        val replacements = synchronized(LocationUtil) {
+            LocationUtil.updateLocation(config)
+            val coordinateSystem = config.appCoordinateSystems[LocationUtil.targetPackageName] ?: CoordinateSystem.WGS84
+            val point = if (coordinateSystem == CoordinateSystem.BD09) {
+                CoordinateTransform.bd09ToGcj02(LocationUtil.latitude, LocationUtil.longitude)
+            } else GeoPoint(LocationUtil.latitude, LocationUtil.longitude)
+            val coarse = if (ApplicationLocationAccess.coarseOnly()) {
+                val fix = android.location.Location("fused").apply {
+                    latitude = point.latitude; longitude = point.longitude; accuracy = LocationUtil.accuracy
                 }
-                "getAccuracy" -> if (config.useAccuracy) {
-                    LocationUtil.accuracy
-                } else {
-                    invokeOriginal(method, original, args)
+                SystemLocationPrivacy.coarseFallback(fix, LocationUtil.targetPackageName.orEmpty())
+            } else null
+            buildMap<String, Any?> {
+                put("getLatitude", coarse?.latitude ?: point.latitude)
+                put("getLongitude", coarse?.longitude ?: point.longitude)
+                put("getTime", System.currentTimeMillis())
+                put("getCoordinateType", if (coordinateSystem == CoordinateSystem.WGS84) TENCENT_COORDINATE_WGS84 else TENCENT_COORDINATE_GCJ02)
+                put("isMockGps", 0)
+                if (config.useAltitude) put("getAltitude", LocationUtil.altitude)
+                if (config.useAccuracy) put("getAccuracy", LocationUtil.accuracy)
+                if (config.useSpeed) put("getSpeed", LocationUtil.speed)
+                if (coarse != null) {
+                    put("getAccuracy", coarse.accuracy)
+                    put("getAltitude", 0.0)
+                    put("getSpeed", 0f)
+                    put("getBearing", 0f)
                 }
-                "getSpeed" -> if (config.useSpeed) {
-                    LocationUtil.speed
-                } else {
-                    invokeOriginal(method, original, args)
-                }
-                "getTime" -> System.currentTimeMillis()
-                "getCoordinateType" -> tencentCoordinateType(config)
-                "isMockGps" -> 0
-                else -> invokeOriginal(method, original, args)
             }
         }
-
-    private fun tencentCoordinateType(config: PreferencesUtil.PreferencesSnapshot): Int {
-        val configured = config.appCoordinateSystems[LocationUtil.targetPackageName]
-            ?: CoordinateSystem.WGS84
-        return if (configured == CoordinateSystem.WGS84) {
-            TENCENT_COORDINATE_WGS84
-        } else {
-            TENCENT_COORDINATE_GCJ02
-        }
+        return frozenLocationProxy(locationClass, original, replacements)
     }
 
     private fun invokeObjectMethod(proxy: Any, name: String, args: Array<out Any?>?): Any? =

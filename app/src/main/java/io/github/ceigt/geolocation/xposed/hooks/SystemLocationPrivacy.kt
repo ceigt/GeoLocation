@@ -41,7 +41,7 @@ internal object SystemLocationPrivacy {
         context.checkPermission(Manifest.permission.ACCESS_COARSE_LOCATION, pid, uid) == PackageManager.PERMISSION_GRANTED
 
     /** Privacy-preserving fallback for ROMs that moved or removed LocationFudger internals. */
-    private fun coarseFallback(source: Location, packageName: String): Location = Location(source).apply {
+    internal fun coarseFallback(source: Location, packageName: String): Location = Location(source).apply {
         val latitudeStep = COARSE_METERS / METERS_PER_LATITUDE_DEGREE
         val longitudeStep = COARSE_METERS /
             (METERS_PER_LATITUDE_DEGREE * cos(Math.toRadians(latitude)).coerceAtLeast(0.1))
@@ -49,6 +49,8 @@ internal object SystemLocationPrivacy {
         val phase = ((packageName.hashCode().toLong() and 0xffffL).toDouble() / 0xffffL) - 0.5
         latitude = round((latitude + phase * latitudeStep) / latitudeStep) * latitudeStep
         longitude = round((longitude - phase * longitudeStep) / longitudeStep) * longitudeStep
+        latitude = latitude.coerceIn(-90.0, 90.0)
+        longitude = ((longitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
         accuracy = maxOf(accuracy, COARSE_METERS.toFloat())
         removeAltitude()
         removeSpeed()

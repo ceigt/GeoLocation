@@ -29,8 +29,9 @@ class LocationApiHooks(
         module.log(Log.INFO, tag, "Hook setup finished; callback delivery requires runtime verification")
     }
 
-    fun onApplicationReady(loader: ClassLoader) {
-        initialize("Tencent SDK retry") { tencent.initHooks(loader) }
+    fun onApplicationReady(context: android.content.Context) {
+        ApplicationLocationAccess.init(context)
+        initialize("Tencent SDK retry") { tencent.initHooks(context.classLoader) }
     }
 
     private inline fun initialize(name: String, action: () -> Unit) {

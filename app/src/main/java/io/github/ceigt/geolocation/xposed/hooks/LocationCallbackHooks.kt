@@ -88,13 +88,13 @@ internal class LocationCallbackHooks(
     }
 
     private fun replaceLocationResult(value: Any?): Any? = when (value) {
-        is Location -> LocationUtil.createFakeLocation(value)
+        is Location -> ApplicationLocationAccess.replace(value)
         is List<*> -> {
             var replaced = false
-            val result = value.map { item ->
+            val result = value.mapNotNull { item ->
                 if (item is Location) {
                     replaced = true
-                    LocationUtil.createFakeLocation(item)
+                    ApplicationLocationAccess.replace(item)
                 } else {
                     item
                 }

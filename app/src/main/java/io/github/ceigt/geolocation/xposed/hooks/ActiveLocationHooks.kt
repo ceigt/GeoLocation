@@ -4,6 +4,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
+import android.os.Build
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -30,30 +31,44 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
 
     private inner class Registration(
         val key: Key, val executor: Executor, val manager: LocationManager,
-        val budget: SystemDeliveryBudget, val minimumDistance: Float
+        val budget: SystemDeliveryBudget, val minimumDistance: Float, val maxNativeUpdates: Int
     ) : LocationListener {
         private val pending = AtomicBoolean(false)
-        private var lastLocation: Location? = null
+        private val delivery = LocationDeliveryPolicy<Location>(budget, minimumDistance) { a, b -> a.distanceTo(b) }
+        private var nativeUpdates = 0L
+
+        override fun onLocationChanged(location: Location) {
+            deliver(listOf(location), false, false)
+        }
+
+        override fun onLocationChanged(locations: MutableList<Location>) {
+            deliver(locations, false, true)
+        }
 
         @Synchronized
-        override fun onLocationChanged(location: Location) {
+        private fun deliver(locations: List<Location>, synthetic: Boolean, batched: Boolean) {
             if (registrations[key] !== this) return
             val now = SystemClock.elapsedRealtime()
             if (budget.expired(now)) { retire(); return }
+            if (!synthetic) nativeUpdates += locations.size
             val spoof = active()
-            val fix = if (spoof) LocationUtil.createFakeLocation(location) else location
-            if (spoof && (!budget.due(now) || !movedEnough(fix))) return
-            budget.sent(now)
-            lastLocation = Location(fix)
-            try { key.listener.onLocationChanged(fix) }
-            finally { if (budget.expired(now)) retire() }
+            try {
+                if (synthetic && (!ApplicationLocationAccess.maySupplement() || !budget.due(now))) return
+                val fixes = locations.mapNotNull { if (spoof) ApplicationLocationAccess.replace(it) else it }
+                val accepted = delivery.accept(now, fixes, spoof, synthetic)
+                if (accepted.isEmpty()) return
+                if (batched && Build.VERSION.SDK_INT >= 31) key.listener.onLocationChanged(accepted)
+                else accepted.forEach(key.listener::onLocationChanged)
+            } finally {
+                if (budget.expired(now) || nativeUpdates >= maxNativeUpdates) retire()
+            }
         }
-
-        private fun movedEnough(fix: Location): Boolean = minimumDistance <= 0f ||
-            lastLocation?.distanceTo(fix)?.let { it >= minimumDistance } != false
 
         override fun onProviderEnabled(provider: String) = key.listener.onProviderEnabled(provider)
         override fun onProviderDisabled(provider: String) = key.listener.onProviderDisabled(provider)
+        override fun onFlushComplete(requestCode: Int) {
+            if (Build.VERSION.SDK_INT >= 31) key.listener.onFlushComplete(requestCode)
+        }
 
         fun retire() {
             registrations.remove(key, this)
@@ -67,8 +82,8 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
             try {
                 executor.execute {
                     try {
-                        if (registrations[key] === this && active() && maySupplement())
-                            onLocationChanged(LocationUtil.createFakeLocation(provider = key.provider))
+                        if (registrations[key] === this && active() && ApplicationLocationAccess.maySupplement())
+                            deliver(listOf(LocationUtil.createFakeLocation(provider = key.provider)), true, false)
                     } finally { pending.set(false) }
                 }
             } catch (error: Exception) {
@@ -78,9 +93,6 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
             }
         }
 
-        // The native registration is installed first; Android has already enforced permission,
-        // AppOps and listener lifetime before this supplement can exist.
-        private fun maySupplement(): Boolean = true
     }
 
     private val tick = object : Runnable {
@@ -93,7 +105,7 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
 
     fun initHooks() {
         LocationManager::class.java.declaredMethods.filter {
-            it.name in setOf("requestLocationUpdates", "requestSingleUpdate", "removeUpdates", "getCurrentLocation")
+            it.name in setOf("requestLocationUpdates", "requestSingleUpdate", "removeUpdates", "getCurrentLocation", "requestFlush")
         }.forEach { method ->
             isolateHook({ module.log(Log.WARN, TAG, "${method.name}: ${it.javaClass.simpleName}") }) {
                 if (method.name == "getCurrentLocation" && method.parameterTypes.contains(Consumer::class.java)) {
@@ -104,7 +116,7 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
                         val original = chain.args[index] as Consumer<Location?>
                         val args = chain.args.toTypedArray()
                         args[index] = Consumer<Location?> { fix ->
-                            original.accept(if (fix != null && active()) LocationUtil.createFakeLocation(fix) else fix)
+                            original.accept(if (fix != null && active()) ApplicationLocationAccess.replace(fix) else fix)
                         }
                         chain.proceed(args)
                     }
@@ -114,11 +126,16 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
                         val index = chain.args.indexOfFirst { it is LocationListener }
                         val listener = chain.args.getOrNull(index) as? LocationListener ?: return@intercept chain.proceed()
                         if (listener is Registration) return@intercept chain.proceed()
+                        ApplicationLocationAccess.init(chain.thisObject as LocationManager)
                         if (method.name == "removeUpdates") {
                             registrations.values.filter { it.key.listener === listener }.forEach { it.retire() }
                             return@intercept chain.proceed()
                         }
                         val provider = chain.args.filterIsInstance<String>().firstOrNull()
+                        if (method.name == "requestFlush") {
+                            val entry = provider?.let { registrations[Key(listener, it)] } ?: return@intercept chain.proceed()
+                            return@intercept chain.proceed(chain.args.toTypedArray().apply { this[index] = entry })
+                        }
                         if (provider == null) {
                             if (skippedSignatures.add(method.toGenericString())) {
                                 module.log(Log.INFO, "[ActiveLocationHooks]", "Native-only overload: ${method.toGenericString()}")
@@ -143,7 +160,7 @@ internal class ActiveLocationHooks(private val module: XposedInterface) {
                         val key = Key(listener, provider)
                         val entry = Registration(key, executor, chain.thisObject as LocationManager,
                             SystemDeliveryBudget(SystemClock.elapsedRealtime(), interval,
-                                number("getDurationMillis", Long.MAX_VALUE), maxUpdates), distance)
+                                number("getDurationMillis", Long.MAX_VALUE), maxUpdates, 0L), distance, maxUpdates)
                         val old = registrations.put(key, entry)
                         val args = chain.args.toTypedArray().apply { this[index] = entry }
                         try {

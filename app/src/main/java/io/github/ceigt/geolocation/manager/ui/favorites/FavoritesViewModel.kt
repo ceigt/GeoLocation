@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 class FavoritesViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -16,6 +17,9 @@ class FavoritesViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _favorites = MutableStateFlow<List<FavoriteLocation>>(emptyList())
     val favorites: StateFlow<List<FavoriteLocation>> get() = _favorites
+    private val _saveError = MutableStateFlow(false)
+    val saveError: StateFlow<Boolean> = _saveError
+    fun clearSaveError() { _saveError.value = false }
 
     init {
         viewModelScope.launch {
@@ -26,14 +30,21 @@ class FavoritesViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun removeFavorite(favorite: FavoriteLocation) {
-        viewModelScope.launch {
-            preferencesRepository.removeFavorite(favorite)
+        write { preferencesRepository.removeFavorite(favorite) }
+    }
+
+    fun selectFavorite(favorite: FavoriteLocation, onSaved: () -> Unit = {}) {
+        write {
+            preferencesRepository.saveLastClickedLocation(favorite.latitude, favorite.longitude)
+            onSaved()
         }
     }
 
-    fun selectFavorite(favorite: FavoriteLocation) {
+    private fun write(operation: suspend () -> Unit) {
         viewModelScope.launch {
-            preferencesRepository.saveLastClickedLocation(favorite.latitude, favorite.longitude)
+            try { operation() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _saveError.value = true }
         }
     }
 }

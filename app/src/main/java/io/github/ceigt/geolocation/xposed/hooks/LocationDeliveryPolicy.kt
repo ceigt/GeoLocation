@@ -7,7 +7,7 @@ internal class LocationDeliveryPolicy<T>(
     private val distance: (T, T) -> Float
 ) {
     private var lastDelivered: T? = null
-    @Synchronized fun accept(now: Long, candidates: List<T>, simulated: Boolean): List<T> {
+    @Synchronized fun accept(now: Long, candidates: List<T>, simulated: Boolean, respectInterval: Boolean = simulated): List<T> {
         var previous = lastDelivered
         val eligible = candidates.filter { fix ->
             val prior = previous
@@ -15,7 +15,7 @@ internal class LocationDeliveryPolicy<T>(
             if (moved) previous = fix
             moved
         }
-        val count = budget.acquire(now, eligible.size, simulated)
+        val count = budget.acquire(now, eligible.size, respectInterval)
         return eligible.take(count).also { accepted ->
             if (accepted.isNotEmpty()) lastDelivered = accepted.last()
         }

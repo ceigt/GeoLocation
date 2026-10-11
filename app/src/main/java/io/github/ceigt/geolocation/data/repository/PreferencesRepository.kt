@@ -365,19 +365,24 @@ class PreferencesRepository(context: Context) {
 
     suspend fun addFavorite(favorite: FavoriteLocation) {
         favoritesMutex.withLock {
-            val updated = getFavorites().toMutableList().apply { add(favorite) }
+            val updated = favoritesForEdit().toMutableList().apply { add(favorite) }
             saveFavorites(updated)
         }
     }
 
     suspend fun removeFavorite(favorite: FavoriteLocation) {
         favoritesMutex.withLock {
-            val updated = getFavorites().toMutableList().apply { remove(favorite) }
+            val updated = favoritesForEdit().toMutableList().apply { remove(favorite) }
             saveFavorites(updated)
         }
     }
 
     fun getFavorites(): List<FavoriteLocation> = parseFavorites(localPrefs.getString(KEY_FAVORITES, null))
+
+    private fun favoritesForEdit(): List<FavoriteLocation> {
+        val json = localPrefs.getString(KEY_FAVORITES, null)
+        return if (json.isNullOrBlank()) emptyList() else JsonCodec.decodeFavorites(json)
+    }
 
     private suspend fun saveFavorites(favorites: List<FavoriteLocation>) {
         val json = JsonCodec.encodeFavorites(favorites)

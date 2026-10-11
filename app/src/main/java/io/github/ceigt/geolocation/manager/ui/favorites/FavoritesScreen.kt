@@ -23,6 +23,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -39,8 +44,19 @@ fun FavoritesScreen(
     favoritesViewModel: FavoritesViewModel = viewModel()
 ) {
     val favorites by favoritesViewModel.favorites.collectAsState()
+    val context = LocalContext.current
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(favoritesViewModel) {
+        favoritesViewModel.saveError.collect { failed ->
+            if (failed) {
+                snackbar.showSnackbar(context.getString(R.string.setting_save_failed))
+                favoritesViewModel.clearSaveError()
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.screen_favorites)) },
@@ -77,8 +93,7 @@ fun FavoritesScreen(
                     FavoriteItem(
                         favorite = favorite,
                         onClick = {
-                            favoritesViewModel.selectFavorite(favorite)
-                            navController.navigateUp()
+                            favoritesViewModel.selectFavorite(favorite) { navController.navigateUp() }
                         },
                         onDelete = { favoritesViewModel.removeFavorite(favorite) }
                     )

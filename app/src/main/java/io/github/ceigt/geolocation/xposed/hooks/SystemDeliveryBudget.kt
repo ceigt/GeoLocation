@@ -5,9 +5,10 @@ internal class SystemDeliveryBudget(
     private val started: Long,
     intervalMillis: Long,
     private val durationMillis: Long,
-    private val maxUpdates: Int
+    private val maxUpdates: Int,
+    minimumIntervalMillis: Long = 1000L
 ) {
-    private val interval = intervalMillis.coerceAtLeast(1000L)
+    private val interval = intervalMillis.coerceAtLeast(minimumIntervalMillis)
     private var last: Long? = null
     private var delivered = 0
     @Synchronized fun remainingMillis(now: Long): Long = when {

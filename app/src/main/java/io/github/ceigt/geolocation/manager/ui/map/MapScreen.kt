@@ -167,6 +167,14 @@ fun MapScreen(
             }
         }
     }
+    LaunchedEffect(favoritesViewModel) {
+        favoritesViewModel.saveError.collect { failed ->
+            if (failed) {
+                snackbarHostState.showSnackbar(context.getString(R.string.setting_save_failed))
+                favoritesViewModel.clearSaveError()
+            }
+        }
+    }
     LaunchedEffect(uiState.mockFailed) {
         if (uiState.mockFailed) snackbarHostState.showSnackbar(context.getString(R.string.mock_provider_start_failed))
     }

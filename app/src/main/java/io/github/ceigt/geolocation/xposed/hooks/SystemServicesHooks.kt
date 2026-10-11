@@ -41,6 +41,12 @@ internal fun selectSystemTargetPackage(
     return packages.filter(::isThirdParty).singleOrNull()
 }
 
+internal fun selectVerifiedSystemTargetPackage(
+    uidPackages: Set<String>, requestedPackage: String?, configuredTargets: Set<String>
+): String? = if (requestedPackage != null && requestedPackage in uidPackages) {
+    selectSystemTargetPackage(setOf(requestedPackage), configuredTargets)
+} else selectSystemTargetPackage(uidPackages, configuredTargets)
+
 class SystemServicesHooks(
     private val module: XposedInterface,
     private val classLoader: ClassLoader
@@ -120,11 +126,18 @@ class SystemServicesHooks(
             val uid = Binder.getCallingUid()
             val pid = Binder.getCallingPid()
             val result = chain.proceed()
-            val targetPackage = targetPackageFrom(chain.args)
-            if (targetPackage != null && result is Location) {
+            val config = PreferencesUtil.snapshot()
+            if (!config.enableSystemHooks || !config.isPlaying || uid % 100000 < 10000) return@hookAll result
+            val service = chain.thisObject ?: return@hookAll null
+            val context = findField(service.javaClass, "mContext")?.get(service) as? Context ?: return@hookAll null
+            val uidPackages = context.packageManager.getPackagesForUid(uid)?.toSet().orEmpty()
+            if (io.github.ceigt.geolocation.data.MANAGER_APP_PACKAGE_NAME in uidPackages) return@hookAll result
+            // AOSP's callingPackage is argument 2; attributionTag is argument 3.
+            val targetPackage = selectVerifiedSystemTargetPackage(uidPackages, chain.args.getOrNull(2) as? String, config.targetApps)
+                ?: return@hookAll null
+            if (result is Location) {
                 val original = result
                 reportOnce("Replaced getLastLocation for $targetPackage")
-                val service = chain.thisObject ?: return@hookAll null
                 SystemLocationPrivacy.replace(service, uid, pid, chain.args.firstOrNull() as? String ?: original.provider.orEmpty(),
                     original, targetPackage) { reportOnce("Last-location privacy adapter unavailable: ${it.javaClass.simpleName}") }
             } else {
@@ -483,7 +496,7 @@ class SystemServicesHooks(
         var hooked = 0
         methods.forEach { method ->
             try {
-                module.hook(method).intercept(hooker)
+                module.interceptSafely(method, { reportOnce("Runtime adapter ${clazz.name}#$methodName unavailable: ${it.javaClass.simpleName}") }, hooker)
                 hooked++
             } catch (e: Throwable) {
                 module.log(Log.ERROR, tag, "Failed hooking ${clazz.name}#$methodName: ${e.message}")
@@ -711,10 +724,7 @@ class SystemServicesHooks(
 
         if (result != null) {
             if (result.javaClass.name == "android.location.LocationResult") {
-                return copyLocationContainer(result, targetPackage) ?: result
-            }
-            if (replaceLocationFields(result, targetPackage)) {
-                return result
+                return copyLocationContainer(result, targetPackage)
             }
 
             if (result is List<*>) {
@@ -723,24 +733,10 @@ class SystemServicesHooks(
                 }
             }
 
-            runCatching {
-                val sizeMethod = result.javaClass.methods.firstOrNull { it.name == "size" && it.parameterTypes.isEmpty() }
-                val getMethod = result.javaClass.methods.firstOrNull { it.name == "get" && it.parameterTypes.size == 1 }
-                val size = sizeMethod?.invoke(result) as? Int ?: return@runCatching
-                if (size > 0) {
-                    val originalLocation = getMethod?.invoke(result, 0) as? Location ?: return@runCatching
-                    val fakeLocation = LocationUtil.createFakeLocation(originalLocation, targetPackage = targetPackage)
-                    originalLocation.latitude = fakeLocation.latitude
-                    originalLocation.longitude = fakeLocation.longitude
-                    originalLocation.altitude = fakeLocation.altitude
-                    originalLocation.accuracy = fakeLocation.accuracy
-                    originalLocation.speed = fakeLocation.speed
-                }
-            }.onFailure {
-                module.log(Log.ERROR, tag, "Could not inspect MIUI location container: ${it.message}")
-            }
-
-            return result
+            val copy = copyLocationPayload(result)
+            if (copy != null && copy !== result && replaceLocationFields(copy, targetPackage)) return copy
+            reportOnce("Unsupported MIUI location container suppressed: ${result.javaClass.name}")
+            return null
         }
 
         return if (method?.returnType?.let { Location::class.java.isAssignableFrom(it) } == true) {

@@ -73,6 +73,43 @@ public class LocationRegressionTest {
         assertEquals("Native and supplemental callbacks exceeded maxUpdates", 1, count.get());
         assertTrue("Unexpected position", fixes.get(0).distanceTo(point) < 200);
     }
+
+    @Test public void dottedAttributionTagDoesNotChangeLastLocation() {
+        requirePermission(); Location point = expected();
+        LocationManager attributed = context.createAttributionContext("regression.location").getSystemService(LocationManager.class);
+        Location fix = attributed.getLastKnownLocation("network");
+        assertNotNull("Precondition: populate network last-known cache before this test", fix);
+        assertTrue("Attribution tag exposed another position", fix.distanceTo(point) < 200);
+    }
+
+    @Test public void flushUsesRegisteredListenerAndForwardsCompletion() throws Exception {
+        requirePermission();
+        CountDownLatch first = new CountDownLatch(1), flushed = new CountDownLatch(1);
+        LocationListener listener = new LocationListener() {
+            @Override public void onLocationChanged(Location fix) { first.countDown(); }
+            @Override public void onFlushComplete(int requestCode) { if (requestCode == 37) flushed.countDown(); }
+        };
+        listeners.add(listener);
+        manager.requestLocationUpdates("gps", new LocationRequest.Builder(1000).setDurationMillis(20000).build(), callbacks, listener);
+        assertTrue("No first fix", first.await(12, TimeUnit.SECONDS));
+        manager.requestFlush("gps", listener, 37);
+        assertTrue("Flush completion was lost", flushed.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test public void finiteSubsecondRequestStopsWithinDuration() throws Exception {
+        requirePermission();
+        AtomicInteger count = new AtomicInteger(); CountDownLatch first = new CountDownLatch(1);
+        LocationListener listener = fix -> { count.incrementAndGet(); first.countDown(); };
+        listeners.add(listener);
+        manager.requestLocationUpdates("gps", new LocationRequest.Builder(200).setMaxUpdates(5)
+            .setDurationMillis(10000).build(), callbacks, listener);
+        assertTrue("No first fix", first.await(12, TimeUnit.SECONDS));
+        Thread.sleep(11000);
+        int afterDeadline = count.get();
+        assertTrue("Delivered more than the requested number", afterDeadline <= 5);
+        Thread.sleep(2500);
+        assertEquals("Supplements restarted an ended request", afterDeadline, count.get());
+    }
     @Test public void sameListenerAcrossProvidersSurvivesOneProviderExpiryAndCancels() throws Exception {
         requirePermission(); Location point = expected();
         ConcurrentHashMap<String, AtomicInteger> counts = new ConcurrentHashMap<>();

@@ -28,8 +28,9 @@ internal class LocationManagerHooks(
             module.hook(method).intercept { chain ->
                 val provider = chain.getArg(0) as String
                 val original = chain.proceed() as? Location
+                ApplicationLocationAccess.init(chain.thisObject as android.location.LocationManager)
                 if (original != null && PreferencesUtil.snapshot().isPlaying) {
-                    val fakeLocation = LocationUtil.createFakeLocation(original, provider = provider)
+                    val fakeLocation = ApplicationLocationAccess.replace(original, provider)
                     logLocationEvent { "getLastKnownLocation($provider): $fakeLocation" }
                     fakeLocation
                 } else {

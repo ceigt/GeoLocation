@@ -69,12 +69,15 @@ object JsonCodec {
         return buildList(array.length()) {
             repeat(array.length()) { index ->
                 val value = array.getJSONObject(index)
+                val latitude = value.getDouble("latitude")
+                val longitude = value.getDouble("longitude")
+                require(latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0)
                 add(
                     FavoriteLocation(
                         name = value.getString("name"),
                         address = value.optString("address", ""),
-                        latitude = value.getDouble("latitude"),
-                        longitude = value.getDouble("longitude")
+                        latitude = latitude,
+                        longitude = longitude
                     )
                 )
             }
