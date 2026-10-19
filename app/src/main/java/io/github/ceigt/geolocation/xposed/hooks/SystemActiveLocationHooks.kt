@@ -37,7 +37,7 @@ internal fun syntheticSecureLocationSetting(method: String?, setting: String?): 
 }
 
 /** Android 12+ continuous listener supplement when the real location switch is off.
- * Native registration runs first: Android retains identity, request and permission validation.
+ * Native registration validates identity, request and permissions before synthetic delivery.
  * No system settings are written and no proprietary implementation is included.
  */
 internal class SystemActiveLocationHooks(private val module: XposedInterface, private val loader: ClassLoader) {
@@ -64,6 +64,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
     private val settingsQueryReported = ConcurrentHashMap.newKeySet<String>()
     private val settingsProviderClasses = ConcurrentHashMap.newKeySet<Class<*>>()
     private val syntheticDispatch = ThreadLocal<Boolean>()
+    @Volatile private var gnssGuardReady = false
     private val nativeSource = ThreadLocal<Registration>()
     private val nativePolicy = NativeCallbackPolicy<IBinder>()
     private var tickScheduled = false
@@ -123,6 +124,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         isolateHook(::reportFailure) { installNativeCurrentLocationGuard() }
         isolateHook(::reportFailure) { installNativeListenerTransportGuard() }
         isolateHook(::reportFailure) { installNativeCurrentTransportGuard() }
+        isolateHook(::reportFailure) { installNativeGnssGuard() }
         val serviceClass = Class.forName("com.android.server.location.LocationManagerService", false, loader)
         for (name in listOf("isLocationEnabledForUser", "isProviderEnabledForUser")) {
             serviceClass.declaredMethods.filter { it.name == name && it.returnType == Boolean::class.javaPrimitiveType }
@@ -217,8 +219,10 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     synchronized(registrationLock) {
                     val uid = Binder.getCallingUid()
                     val pid = Binder.getCallingPid()
-                    val result = chain.proceed() // native identity and permission validation first
+                    var prepared: Registration? = null
+                    var previous: Registration? = null
                     isolateHook(::reportFailure) {
+                        if (!gnssGuardReady) return@isolateHook
                         val service = chain.thisObject ?: return@isolateHook
                         val context = contextOf(service) ?: return@isolateHook
                         val pkg = appPackage(context, uid, chain.args.getOrNull(1) as? String) ?: return@isolateHook
@@ -227,14 +231,24 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         } ?: return@isolateHook
                         val callback = listener.javaClass.getMethod("onSvStatusChanged", GnssStatus::class.java)
                             .apply { isAccessible = true }
-                        if (result != false) {
-                            val entry = Registration(listener, context, service, uid, pid, pkg, "gps",
-                                callback, SystemDeliveryBudget(SystemClock.elapsedRealtime(), 1000L, Long.MAX_VALUE, Int.MAX_VALUE), true)
-                            guarded[entry.key] = entry
-                            handler.post { add(entry) }
-                        }
+                        val entry = Registration(listener, context, service, uid, pid, pkg, "gps",
+                            callback, SystemDeliveryBudget(SystemClock.elapsedRealtime(), 1000L, Long.MAX_VALUE, Int.MAX_VALUE), true)
+                        // Native registration may call back synchronously, before it returns.
+                        previous = guarded.put(entry.key, entry)
+                        prepared = entry
                     }
-                    result
+                    fun rollback() { prepared?.let { entry ->
+                        val old = previous
+                        if (old == null) guarded.remove(entry.key, entry) else guarded.replace(entry.key, entry, old)
+                    } }
+                    try {
+                        val result = chain.proceed() // retain native identity and permission validation
+                        if (result == false) rollback() else prepared?.let { entry -> handler.post { add(entry) } }
+                        result
+                    } catch (error: Throwable) {
+                        rollback()
+                        throw error
+                    }
                     }
                 }
             }
@@ -433,6 +447,30 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             chain.proceed(args)
         }
         module.log(Log.INFO, tag, "Native ILocationListener Binder guard installed")
+    }
+
+    private fun installNativeGnssGuard() {
+        val proxy = Class.forName("android.location.IGnssStatusListener\$Stub\$Proxy", false, loader)
+        val signatures = mapOf(
+            "onGnssStarted" to emptyArray<Class<*>>(),
+            "onGnssStopped" to emptyArray<Class<*>>(),
+            "onFirstFix" to arrayOf<Class<*>>(Int::class.javaPrimitiveType!!),
+            "onSvStatusChanged" to arrayOf<Class<*>>(GnssStatus::class.java)
+        )
+        // Keep partial installs inactive: unsupported ROMs retain native GNSS, without a second sky.
+        val methods = signatures.map { (name, parameters) -> proxy.getDeclaredMethod(name, *parameters) }
+        methods.forEach { method ->
+            module.interceptSafely(method, ::reportFailure) { chain ->
+                if (!gnssGuardReady || syntheticDispatch.get() == true) return@interceptSafely chain.proceed()
+                val token = (chain.thisObject as? IInterface)?.asBinder()
+                val tracked = token != null && guarded.containsKey(Key(token, "_gnss"))
+                if (!tracked) return@interceptSafely chain.proceed()
+                if (suppressNativeGnss(gnssGuardReady, active(), tracked, syntheticDispatch.get() == true)) null
+                else chain.proceed()
+            }
+        }
+        gnssGuardReady = true
+        module.log(Log.INFO, tag, "Native IGnssStatusListener Binder guards installed (4/4)")
     }
 
     /** One-shot getCurrentLocation uses a separate Binder interface. */
@@ -706,27 +744,35 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     )
                 }
                 if (!entry.gnss && location == null) return@isolateHook
-                val accepted = if (entry.gnss) entry.budget.acquire(now, 1, true) == 1
-                    else entry.delivery.accept(now, listOf(checkNotNull(location)), true).isNotEmpty()
-                if (!accepted) return@isolateHook
-                if (!entry.enabledNotified) {
-                    if (entry.gnss) {
-                        gnssEvent(entry, "onGnssStarted")
-                        entry.listener.javaClass.getMethod("onFirstFix", Int::class.javaPrimitiveType)
-                            .apply { isAccessible = true }.invoke(entry.listener, 0)
-                    } else entry.availability?.invoke(entry.listener, entry.provider, true)
-                    entry.enabledNotified = true
+                val previousDispatch = syntheticDispatch.get()
+                syntheticDispatch.set(true)
+                val sent = try {
+                    deliverPrepared(prepare = {
+                        val payload: Any = if (entry.gnss) simulatedGnssStatus() else listOf(checkNotNull(location))
+                        if (!entry.enabledNotified) {
+                            if (entry.gnss) {
+                                val firstFix = entry.listener.javaClass.getMethod("onFirstFix", Int::class.javaPrimitiveType)
+                                    .apply { isAccessible = true }
+                                gnssEvent(entry, "onGnssStarted")
+                                firstFix.invoke(entry.listener, 0)
+                            } else entry.availability?.invoke(entry.listener, entry.provider, true)
+                            entry.enabledNotified = true
+                        }
+                        payload
+                    }, accept = {
+                        // Nothing before this boundary consumes count, interval or minimum distance.
+                        val sendTime = SystemClock.elapsedRealtime()
+                        if (!active() || guarded[entry.key] !== entry) false
+                        else if (entry.gnss) entry.budget.acquire(sendTime, 1, true) == 1
+                        else entry.delivery.accept(sendTime, listOf(checkNotNull(location)), true).isNotEmpty()
+                    }, send = { payload ->
+                        if (entry.gnss) entry.callback.invoke(entry.listener, payload)
+                        else entry.callback.invoke(entry.listener, payload, null)
+                    })
+                } finally {
+                    if (previousDispatch == null) syntheticDispatch.remove() else syntheticDispatch.set(previousDispatch)
                 }
-                if (entry.gnss) {
-                    entry.callback.invoke(entry.listener, simulatedGnssStatus())
-                } else {
-                    syntheticDispatch.set(true)
-                    try {
-                        entry.callback.invoke(entry.listener, listOf(location), null)
-                    } finally {
-                        syntheticDispatch.remove()
-                    }
-                }
+                if (!sent) return@isolateHook
                 diagnostic(entry, if (entry.gnss) "satellite-status-sent" else "callback-sent")
                 entry.consecutiveFailures = 0
                 entry.retryAfter = 0L
@@ -758,8 +804,9 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         val mode = appOps.noteOpNoThrow(
             operation, entry.uid, entry.packageName, null, "GeoLocation callback authorization"
         )
-        val foreground = context.getSystemService(ActivityManager::class.java)?.runningAppProcesses
-            ?.any { it.uid == entry.uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND } == true
+        val foreground = ForegroundLocationAccess.systemCapability(context, entry.uid)
+            ?: (context.getSystemService(ActivityManager::class.java)?.runningAppProcesses
+                ?.any { it.uid == entry.uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND } == true)
         if (!foreground && context.checkPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION, entry.pid, entry.uid) != PackageManager.PERMISSION_GRANTED) {
             diagnostic(entry, "background-permission-denied; appOp=$mode")
             return false

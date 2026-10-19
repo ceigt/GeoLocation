@@ -32,12 +32,20 @@ internal object ApplicationLocationAccess {
         val coarse = app.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return@runCatching false
         val importance = ActivityManager.RunningAppProcessInfo().also(ActivityManager::getMyMemoryState).importance
-        val foreground = importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-        if (!foreground && app.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            return@runCatching false
         val ops = app.getSystemService(AppOpsManager::class.java) ?: return@runCatching false
         val op = if (fine) AppOpsManager.OPSTR_FINE_LOCATION else AppOpsManager.OPSTR_COARSE_LOCATION
         val mode = ops.unsafeCheckOpRawNoThrow(op, Process.myUid(), app.opPackageName)
+        // noteOp evaluates while-in-use eligibility; checkOp alone does not, on older Android.
+        // shortcut: with the real switch off an app cannot prove FGS capability; system supplements handle that case.
+        val visible = importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        val serviceImportance = importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE
+        val evaluatedMode = if (!visible && serviceImportance && mode == AppOpsManager.MODE_FOREGROUND)
+            ops.noteOpNoThrow(op, Process.myUid(), app.opPackageName, null, null) else AppOpsManager.MODE_IGNORED
+        val foreground = ForegroundLocationAccess.applicationForeground(
+            visible, serviceImportance, mode, evaluatedMode
+        )
+        if (!foreground && app.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return@runCatching false
         SyntheticLocationAccess.allowed(mode.takeUnless { it == AppOpsManager.MODE_DEFAULT }, null, AppOpsManager.MODE_ALLOWED, foreground)
     }.getOrDefault(false)
 

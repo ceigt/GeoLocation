@@ -26,6 +26,7 @@ public class LocationRegressionTest {
             new Intent(context, ProbeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
     }
     @After public void cleanup() {
+        context.stopService(new Intent(context, ProbeLocationService.class));
         for (LocationListener listener : listeners) manager.removeUpdates(listener);
         callbacks.shutdownNow();
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> activity.finish());
@@ -51,6 +52,59 @@ public class LocationRegressionTest {
         assertEquals(23.75, history.getLongitude(), 0);
         assertEquals(345, history.getAltitude(), 0);
         assertEquals(6, history.getSpeed(), 0);
+    }
+
+    @Test public void locationForegroundServiceContinuesWithoutBackgroundPermission() throws Exception {
+        requirePermission(); Location point = expected();
+        assertEquals("This test must not have background location permission", PackageManager.PERMISSION_DENIED,
+            context.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION));
+        ProbeLocationService.fixes.clear();
+        context.startForegroundService(new Intent(context, ProbeLocationService.class));
+        long deadline = SystemClock.elapsedRealtime() + 5000;
+        while (!ProbeLocationService.running && SystemClock.elapsedRealtime() < deadline) Thread.sleep(50);
+        assertTrue("Location FGS did not start while activity was visible", ProbeLocationService.running);
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> activity.moveTaskToBack(true));
+        Thread.sleep(5000);
+        android.app.ActivityManager.RunningAppProcessInfo state = new android.app.ActivityManager.RunningAppProcessInfo();
+        android.app.ActivityManager.getMyMemoryState(state);
+        assertTrue("Probe activity is still foreground; FGS case was not exercised",
+            state.importance > android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND);
+        ProbeLocationService.fixes.clear();
+        Thread.sleep(4500);
+        assertTrue("Background activity's location FGS stopped receiving fixes", ProbeLocationService.fixes.size() >= 2);
+        for (Location fix : ProbeLocationService.fixes) assertTrue("Unexpected FGS position", fix.distanceTo(point) < 200);
+    }
+
+    @Test public void simulatedGnssDoesNotMixWithNativeSky() throws Exception {
+        requirePermission();
+        CopyOnWriteArrayList<GnssStatus> skies = new CopyOnWriteArrayList<>();
+        AtomicInteger starts = new AtomicInteger(), firstFixes = new AtomicInteger(), stops = new AtomicInteger();
+        CountDownLatch received = new CountDownLatch(1);
+        GnssStatus.Callback callback = new GnssStatus.Callback() {
+            @Override public void onStarted() { starts.incrementAndGet(); }
+            @Override public void onStopped() { stops.incrementAndGet(); }
+            @Override public void onFirstFix(int ttff) { firstFixes.incrementAndGet(); }
+            @Override public void onSatelliteStatusChanged(GnssStatus status) { skies.add(status); received.countDown(); }
+        };
+        assertTrue("GNSS registration rejected", manager.registerGnssStatusCallback(callbacks, callback));
+        try {
+            assertTrue("No GNSS status with simulation active", received.await(12, TimeUnit.SECONDS));
+            Thread.sleep(3500);
+            assertTrue("GNSS status stopped after its first callback", skies.size() >= 2);
+            assertEquals("Repeated/mixed GNSS start", 1, starts.get());
+            assertEquals("Repeated/mixed first fix", 1, firstFixes.get());
+            assertEquals("Native stop event mixed into active simulation", 0, stops.get());
+            for (GnssStatus sky : skies) {
+                assertEquals("Native sky mixed into simulation", 8, sky.getSatelliteCount());
+                for (int i = 0; i < 8; i++) {
+                    assertEquals(GnssStatus.CONSTELLATION_GPS, sky.getConstellationType(i));
+                    assertEquals(i + 1, sky.getSvid(i));
+                    assertEquals(32f + i, sky.getCn0DbHz(i), 0f);
+                    assertEquals(25f + i * 6, sky.getElevationDegrees(i), 0f);
+                    assertEquals(i * 45f, sky.getAzimuthDegrees(i), 0f);
+                }
+            }
+        } finally { manager.unregisterGnssStatusCallback(callback); }
     }
     @Test public void differentCertificateCannotControlModule() throws Exception {
         assertEquals(PackageManager.PERMISSION_DENIED,

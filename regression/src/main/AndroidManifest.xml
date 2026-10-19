@@ -1,10 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="io.github.ceigt.geolocation.CONTROL" />
     <queries><package android:name="io.github.ceigt.geolocation" /></queries>
     <attribution android:tag="regression.location" android:label="GeoLocation regression" />
     <application android:label="GeoLocation Regression" android:allowBackup="false">
         <activity android:name=".ProbeActivity" android:exported="false" />
+        <service android:name=".ProbeLocationService" android:exported="false" android:foregroundServiceType="location" />
     </application>
 </manifest>
