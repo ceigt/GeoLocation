@@ -10,13 +10,15 @@ import kotlin.math.round
 
 /** Permission-aware output at the final system boundary; never returns real data on adapter failure. */
 internal object SystemLocationPrivacy {
-    fun replace(service: Any, uid: Int, pid: Int, provider: String, original: Location,
+    private val members = ReflectionCache()
+
+    fun replace(service: Any, uid: Int, pid: Int, provider: String, original: Location?,
         packageName: String, failure: (Throwable) -> Unit): Location? = runCatching {
         val context = field(service, "mContext") as Context
         val coarse = hasCoarse(context, uid, pid)
         val fine = hasFine(context, uid, pid)
         if (!coarse && !fine) return@runCatching null
-        val fake = LocationUtil.createFakeLocation(original, targetPackage = packageName)
+        val fake = LocationUtil.createFakeLocation(original, provider, targetPackage = packageName)
         if (fine) return@runCatching fake
         // Use this ROM's existing per-provider coarse filter, including its privacy offsets,
         // configured accuracy and optional-field removal. Do not invent a second coarse algorithm.
@@ -66,22 +68,11 @@ internal object SystemLocationPrivacy {
         }
     }
 
-    private fun field(owner: Any, name: String): Any? {
-        var type: Class<*>? = owner.javaClass
-        while (type != null) {
-            try { return type.getDeclaredField(name).apply { isAccessible = true }.get(owner) }
-            catch (_: NoSuchFieldException) { type = type.superclass }
-        }
-        error("Missing privacy field: $name")
-    }
-    private fun method(owner: Any, name: String, vararg parameters: Class<*>): java.lang.reflect.Method {
-        var type: Class<*>? = owner.javaClass
-        while (type != null) {
-            try { return type.getDeclaredMethod(name, *parameters).apply { isAccessible = true } }
-            catch (_: NoSuchMethodException) { type = type.superclass }
-        }
-        error("Missing privacy method: $name")
-    }
+    private fun field(owner: Any, name: String): Any? =
+        (members.field(owner.javaClass, name) ?: error("Missing privacy field: $name")).get(owner)
+
+    private fun method(owner: Any, name: String, vararg parameters: Class<*>): java.lang.reflect.Method =
+        members.method(owner.javaClass, name, *parameters) ?: error("Missing privacy method: $name")
 
     private const val COARSE_METERS = 2_000.0
     private const val METERS_PER_LATITUDE_DEGREE = 111_320.0

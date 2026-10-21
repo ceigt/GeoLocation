@@ -135,14 +135,9 @@ class SystemServicesHooks(
             // AOSP's callingPackage is argument 2; attributionTag is argument 3.
             val targetPackage = selectVerifiedSystemTargetPackage(uidPackages, chain.args.getOrNull(2) as? String, config.targetApps)
                 ?: return@hookAll null
-            if (result is Location) {
-                val original = result
-                reportOnce("Replaced getLastLocation for $targetPackage")
-                SystemLocationPrivacy.replace(service, uid, pid, chain.args.firstOrNull() as? String ?: original.provider.orEmpty(),
-                    original, targetPackage) { reportOnce("Last-location privacy adapter unavailable: ${it.javaClass.simpleName}") }
-            } else {
-                result
-            }
+            reportOnce("Replaced getLastLocation for $targetPackage")
+            activeLocationHooks.singleLocation(service, uid, pid,
+                chain.args.firstOrNull() as? String ?: (result as? Location)?.provider.orEmpty(), targetPackage, result as? Location)
         }
     }
 
@@ -392,19 +387,18 @@ class SystemServicesHooks(
             if (shouldSpoofWifiCaller(chain.thisObject) && targetPackageFrom(chain.args) != null) true else result
         }
 
-        hookAll(wifiServiceClass, "getScanResults") { chain ->
-            val result = chain.proceed()
-            val targetPackage = if (shouldSpoofWifiCaller(chain.thisObject)) targetPackageFrom(chain.args) else null
-            if (targetPackage != null && result != null) {
-                // Android 15's Binder service returns ParceledListSlice, not List. Returning a raw
-                // list here breaks unmarshalling in clients and is commonly surfaced as a generic
-                // "location service disabled" error. Keep the service available while withholding
-                // network identifiers, so the SDK can only use the synthetic GNSS fix.
-                (if (result is List<*>) emptyList<Any>() else wrapParceledList(result, emptyList()))?.also {
-                    reportOnce("Empty Wi-Fi scan supplied for $targetPackage")
-                }
-            } else {
-                result
+        wifiServiceClass.declaredMethods.filter { it.name == "getScanResults" }.forEach { method ->
+            val emptyPayload = runCatching { emptyScanPayloadFactory(method.returnType) }.getOrElse {
+                reportOnce("Wi-Fi scan adapter unsupported (${method.returnType.name}); scan blocking unavailable")
+                return@forEach
+            }
+            module.interceptSafely(method, { reportOnce("Wi-Fi scan adapter failed: ${it.javaClass.simpleName}") }) { chain ->
+                val result = chain.proceed()
+                val target = if (shouldSpoofWifiCaller(chain.thisObject)) targetPackageFrom(chain.args) else null
+                if (target != null && result != null) {
+                    reportOnce("Empty Wi-Fi scan supplied for $target")
+                    emptyPayload()
+                } else result
             }
         }
 
@@ -424,14 +418,6 @@ class SystemServicesHooks(
             }
         }
     }
-
-    private fun wrapParceledList(original: Any, values: List<Any>): Any? = runCatching {
-        original.javaClass.getDeclaredConstructor(List::class.java)
-            .apply { isAccessible = true }
-            .newInstance(values)
-    }.onFailure {
-        reportOnce("Unable to construct virtual Wi-Fi scan payload: ${it.javaClass.simpleName}")
-    }.getOrNull()
 
     private fun shouldSpoofWifiCaller(service: Any?): Boolean {
         val config = PreferencesUtil.snapshot()

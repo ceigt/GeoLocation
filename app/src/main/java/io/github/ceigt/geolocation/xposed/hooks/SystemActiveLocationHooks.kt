@@ -50,12 +50,14 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
     private val handler by lazy { Handler(HandlerThread("GeoLocationSystemCallbacks").apply { start() }.looper) }
     private data class Key(val token: IBinder, val provider: String)
     private val registrationLock = Any()
+    private val members = ReflectionCache()
     private val registrations = HashMap<Key, Registration>() // accessed only on handler
     private var previousActive = false
     private var announced = false
     private val providers = setOf("gps", "network", "fused", "passive")
     private val guarded = ConcurrentHashMap<Key, Registration>()
-    private class CurrentRequest(val service: Any, val uid: Int, val pid: Int, val provider: String, val packageName: String)
+    private class CurrentRequest(val service: Any, val uid: Int, val pid: Int, val provider: String,
+        val packageName: String)
     private val guardedCurrent = ConcurrentHashMap<IBinder, CurrentRequest>()
     private val currentCleanup = ConcurrentHashMap<IBinder, Runnable>()
     private val guardedClasses = ConcurrentHashMap.newKeySet<Class<*>>()
@@ -229,7 +231,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         val listener = chain.args.filterIsInstance<IInterface>().firstOrNull {
                             it.asBinder().interfaceDescriptor == "android.location.IGnssStatusListener"
                         } ?: return@isolateHook
-                        val callback = listener.javaClass.getMethod("onSvStatusChanged", GnssStatus::class.java)
+                        val callback = methodOf(listener.javaClass, "onSvStatusChanged", GnssStatus::class.java)
                             .apply { isAccessible = true }
                         val entry = Registration(listener, context, service, uid, pid, pkg, "gps",
                             callback, SystemDeliveryBudget(SystemClock.elapsedRealtime(), 1000L, Long.MAX_VALUE, Int.MAX_VALUE), true)
@@ -394,7 +396,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         if (callback == null) return
         isolateHook(::reportFailure) {
             if (callback is Runnable) callback.run()
-            else callback.javaClass.getMethod("sendResult", Bundle::class.java).apply { isAccessible = true }.invoke(callback, null)
+            else methodOf(callback.javaClass, "sendResult", Bundle::class.java).apply { isAccessible = true }.invoke(callback, null)
         }
     }
 
@@ -486,7 +488,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             val token = (chain.thisObject as? IInterface)?.asBinder()
             val current = token?.let { guardedCurrent[it] }
             val packageName = current?.packageName
-            if (!active() || chain.args.firstOrNull() == null) {
+            if (!active()) {
                 try { chain.proceed() } finally { token?.let(::clearCurrent) }
             } else if (packageName == null) {
                 val args = chain.args.toTypedArray()
@@ -494,8 +496,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                 try { chain.proceed(args) } finally { token?.let(::clearCurrent) }
             } else {
                 val args = chain.args.toTypedArray()
-                args[0] = SystemLocationPrivacy.replace(checkNotNull(current).service, current.uid, current.pid,
-                    current.provider, chain.args.first() as android.location.Location, packageName, ::reportFailure)
+                args[0] = replaceCurrent(checkNotNull(current), chain.args.firstOrNull() as? android.location.Location)
                 if (nativeGuardReported.addBounded("$packageName/current")) {
                     module.log(Log.INFO, tag, "Native current-location payload replaced: $packageName")
                 }
@@ -520,12 +521,11 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             module.interceptSafely(method, ::reportFailure) { chain ->
                 if (syntheticDispatch.get() == true) return@interceptSafely chain.proceed()
                 val listener = runCatching {
-                    listenerTransport.getDeclaredField("mListener").apply { isAccessible = true }
-                        .get(chain.thisObject) as? IInterface
+                    members.field(listenerTransport, "mListener")?.get(chain.thisObject) as? IInterface
                 }.onFailure(::reportFailure).getOrNull()
                 val token = listener?.asBinder()
                 val original = chain.args.firstOrNull()
-                val locations = runCatching { original?.javaClass?.getMethod("asList")?.invoke(original) as? List<*> }
+                val locations = runCatching { original?.let { methodOf(it.javaClass, "asList").invoke(it) } as? List<*> }
                     .onFailure(::reportFailure).getOrNull()?.filterIsInstance<android.location.Location>()
                 val tracked = sourceOf(listener) ?: listener?.asBinder()?.let { findRegistration(it) }
                 if (tracked == null || locations == null || original == null) {
@@ -538,7 +538,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                     return@interceptSafely null
                 }
                 val replacement = runCatching {
-                    original.javaClass.getMethod("create", List::class.java).invoke(null, accepted)
+                    methodOf(original.javaClass, "create", List::class.java).invoke(null, accepted)
                 }.getOrElse { error ->
                     reportFailure(error)
                     completeSuppressed(chain.args.getOrNull(1))
@@ -563,21 +563,20 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             module.interceptSafely(method, ::reportFailure) { chain ->
                 if (syntheticDispatch.get() == true) return@interceptSafely chain.proceed()
                 val callback = runCatching {
-                    currentTransport.getDeclaredField("mCallback").apply { isAccessible = true }
-                        .get(chain.thisObject) as? IInterface
+                    members.field(currentTransport, "mCallback")?.get(chain.thisObject) as? IInterface
                 }.onFailure(::reportFailure).getOrNull()
                 val token = callback?.asBinder()
                 val current = token?.let(guardedCurrent::get)
                 val packageName = current?.packageName
                 val original = chain.args.firstOrNull()
-                if (!active() || original == null) {
+                if (!active()) {
                     try { chain.proceed() } finally { token?.let(::clearCurrent) }
                 } else if (packageName == null) {
                     val args = chain.args.toTypedArray()
                     if (suppressUnknown(token, null)) args[0] = null
                     try { chain.proceed(args) } finally { token?.let(::clearCurrent) }
                 } else {
-                    val replacement = copyLocationResult(original, checkNotNull(current))
+                    val replacement = copyLocationResult(original, checkNotNull(current), method.parameterTypes.first())
                     if (replacement == null) {
                         val args = chain.args.toTypedArray()
                         args[0] = null
@@ -600,14 +599,40 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         module.log(Log.INFO, tag, "Android 15 location transport guards installed")
     }
 
-    private fun copyLocationResult(value: Any, current: CurrentRequest): Any? = runCatching {
-        if (value.javaClass.name != "android.location.LocationResult") return@runCatching null
-        val locations = value.javaClass.getMethod("asList").invoke(value) as? List<*> ?: return@runCatching null
-        val replacements = locations.map { location ->
-            SystemLocationPrivacy.replace(current.service, current.uid, current.pid, current.provider,
-                location as android.location.Location, current.packageName, ::reportFailure) ?: return@runCatching null
+    private fun replaceCurrent(current: CurrentRequest, original: android.location.Location?): android.location.Location? =
+        singleLocation(current.service, current.uid, current.pid, current.provider, current.packageName, original)
+
+    /** Native cancellation and timeout still own the one-shot lifecycle; never start a second request. */
+    fun singleLocation(service: Any, uid: Int, pid: Int, provider: String, packageName: String,
+        original: android.location.Location?): android.location.Location? {
+        // A missing or hidden provider also returns null natively; that is not an empty cache.
+        val providerAvailable = if (original != null) true else {
+            val manager = methodOf(service.javaClass, "getLocationProviderManager", String::class.java)
+                .invoke(service, provider)
+            manager != null && ((members.method(manager.javaClass, "isVisibleToCaller")?.invoke(manager) as? Boolean)
+                ?: (provider in providers))
         }
-        value.javaClass.getMethod("create", List::class.java).invoke(null, replacements)
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            replaceSingleFix(original, {
+                val context = contextOf(service)
+                providerAvailable && active() && context != null &&
+                    mayDeliver(context, service, uid, pid, packageName)
+            }) { SystemLocationPrivacy.replace(service, uid, pid, provider, it, packageName, ::reportFailure) }
+        } finally { Binder.restoreCallingIdentity(identity) }
+    }
+
+    private fun copyLocationResult(value: Any?, current: CurrentRequest, declaredType: Class<*>): Any? = runCatching {
+        if (value is android.location.Location || declaredType == android.location.Location::class.java)
+            return@runCatching replaceCurrent(current, value as? android.location.Location)
+        val type = value?.javaClass ?: declaredType
+        if (type.name != "android.location.LocationResult") return@runCatching null
+        val locations = if (value == null) listOf(null) else
+            methodOf(type, "asList").invoke(value) as? List<*> ?: return@runCatching null
+        val replacements = locations.map { location ->
+            replaceCurrent(current, location as? android.location.Location) ?: return@runCatching null
+        }
+        methodOf(type, "create", List::class.java).invoke(null, replacements)
     }.onFailure(::reportFailure).getOrNull()
 
     private fun add(entry: Registration) {
@@ -644,8 +669,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
     private fun finishNativeRequest(entry: Registration, now: Long) = synchronized(registrationLock) {
         if (guarded[entry.key] !== entry || entry.gnss) return@synchronized
         try {
-            val lookup = entry.service.javaClass.getDeclaredMethod("getLocationProviderManager", String::class.java)
-                .apply { isAccessible = true }
+            val lookup = methodOf(entry.service.javaClass, "getLocationProviderManager", String::class.java)
             val manager = lookup.invoke(entry.service, entry.provider)
             if (manager != null) {
                 val unregister = manager.javaClass.methods.first { it.name == "unregisterLocationRequest" &&
@@ -683,7 +707,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                                 if (!realLocationEnabled(entry)) gnssEvent(entry, "onGnssStopped")
                                 return@isolateHook
                             }
-                            val realEnabled = entry.service.javaClass.getMethod("isProviderEnabledForUser", String::class.java, Int::class.javaPrimitiveType)
+                            val realEnabled = methodOf(entry.service.javaClass, "isProviderEnabledForUser", String::class.java, Int::class.javaPrimitiveType!!)
                                 .invoke(entry.service, entry.provider, entry.uid / 100000) as Boolean
                             entry.availability?.invoke(entry.listener, entry.provider, realEnabled)
                         }
@@ -733,16 +757,10 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
             // waiting for a native fix in that state leaves indoor/vendor clients spinning.
             // Native callbacks remain protected by the transport and Binder guards above.
             if (mayDeliver(entry) && active()) {
-                val location = if (entry.gnss) null else {
-                    val base = LocationUtil.createFakeLocation(
-                        provider = if (entry.provider == "passive") "gps" else entry.provider,
-                        targetPackage = entry.packageName
-                    )
-                    SystemLocationPrivacy.replace(
-                        entry.service, entry.uid, entry.pid, entry.provider, base,
-                        entry.packageName, ::reportFailure
-                    )
-                }
+                val location = if (entry.gnss) null else SystemLocationPrivacy.replace(
+                    entry.service, entry.uid, entry.pid,
+                    if (entry.provider == "passive") "gps" else entry.provider,
+                    null, entry.packageName, ::reportFailure)
                 if (!entry.gnss && location == null) return@isolateHook
                 val previousDispatch = syntheticDispatch.get()
                 syntheticDispatch.set(true)
@@ -751,7 +769,7 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
                         val payload: Any = if (entry.gnss) simulatedGnssStatus() else listOf(checkNotNull(location))
                         if (!entry.enabledNotified) {
                             if (entry.gnss) {
-                                val firstFix = entry.listener.javaClass.getMethod("onFirstFix", Int::class.javaPrimitiveType)
+                                val firstFix = methodOf(entry.listener.javaClass, "onFirstFix", Int::class.javaPrimitiveType!!)
                                     .apply { isAccessible = true }
                                 gnssEvent(entry, "onGnssStarted")
                                 firstFix.invoke(entry.listener, 0)
@@ -784,45 +802,37 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         }
     }
 
-    private fun mayDeliver(entry: Registration): Boolean {
-        val context = entry.context
-        val user = UserHandle.getUserHandleForUid(entry.uid)
+    private fun mayDeliver(entry: Registration): Boolean = mayDeliver(entry.context, entry.service,
+        entry.uid, entry.pid, entry.packageName, entry.gnss) { diagnostic(entry, it) }
+
+    private fun mayDeliver(context: Context, service: Any, uid: Int, pid: Int, packageName: String,
+        gnss: Boolean = false, diagnostic: (String) -> Unit = {}): Boolean {
+        val user = UserHandle.getUserHandleForUid(uid)
         val users = context.getSystemService(UserManager::class.java) ?: return false
         if (users.isQuietModeEnabled(user)) return false
-        val unlocked = UserManager::class.java.getMethod("isUserUnlocked", UserHandle::class.java)
-            .invoke(users, user) as Boolean
-        if (!unlocked) return false
-        val fine = SystemLocationPrivacy.hasFine(context, entry.uid, entry.pid)
-        val coarse = SystemLocationPrivacy.hasCoarse(context, entry.uid, entry.pid)
-        if (!fine && !coarse) {
-            diagnostic(entry, "location-permission-denied")
-            return false
-        }
-        if (entry.gnss && !fine) return false
+        if (methodOf(UserManager::class.java, "isUserUnlocked", UserHandle::class.java).invoke(users, user) != true) return false
+        val fine = SystemLocationPrivacy.hasFine(context, uid, pid)
+        val coarse = SystemLocationPrivacy.hasCoarse(context, uid, pid)
+        if (!fine && !coarse) { diagnostic("location-permission-denied"); return false }
+        if (gnss && !fine) return false
         val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
         val operation = if (fine) AppOpsManager.OPSTR_FINE_LOCATION else AppOpsManager.OPSTR_COARSE_LOCATION
-        val mode = appOps.noteOpNoThrow(
-            operation, entry.uid, entry.packageName, null, "GeoLocation callback authorization"
-        )
-        val foreground = ForegroundLocationAccess.systemCapability(context, entry.uid)
+        val mode = appOps.noteOpNoThrow(operation, uid, packageName, null, "GeoLocation callback authorization")
+        val foreground = ForegroundLocationAccess.systemCapability(context, uid)
             ?: (context.getSystemService(ActivityManager::class.java)?.runningAppProcesses
-                ?.any { it.uid == entry.uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND } == true)
-        if (!foreground && context.checkPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION, entry.pid, entry.uid) != PackageManager.PERMISSION_GRANTED) {
-            diagnostic(entry, "background-permission-denied; appOp=$mode")
-            return false
+                ?.any { it.uid == uid && it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND } == true)
+        if (!foreground && context.checkPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION, pid, uid) != PackageManager.PERMISSION_GRANTED) {
+            diagnostic("background-permission-denied; appOp=$mode"); return false
         }
-        // Android applies a location-switch restriction to evaluated AppOps, including
-        // checkOpRaw. For synthetic callbacks only, query stored authorization instead.
-        // Never mutate AppOps or the real provider's restrictions.
-        val savedAllowed = storedAuthorization(entry, appOps, foreground, operation)
+        val savedAllowed = storedAuthorization(context, uid, packageName, appOps, foreground, operation)
         val allowed = savedAllowed && (mode == AppOpsManager.MODE_ALLOWED ||
-            (mode == AppOpsManager.MODE_FOREGROUND && foreground) || !realLocationEnabled(entry))
-        if (!allowed) diagnostic(entry, "appOp-denied=$mode; foreground=$foreground")
+            (mode == AppOpsManager.MODE_FOREGROUND && foreground) || !realLocationEnabled(context, service, uid))
+        if (!allowed) diagnostic("appOp-denied=$mode; foreground=$foreground")
         return allowed
     }
 
     private fun gnssEvent(entry: Registration, name: String) {
-        entry.listener.javaClass.getMethod(name).apply { isAccessible = true }.invoke(entry.listener)
+        methodOf(entry.listener.javaClass, name).apply { isAccessible = true }.invoke(entry.listener)
     }
 
     private fun simulatedGnssStatus(): GnssStatus = GnssStatus.Builder().apply {
@@ -834,35 +844,35 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
     }.build()
 
     private fun storedAuthorization(
-        entry: Registration,
+        context: Context, uid: Int, packageName: String,
         appOps: AppOpsManager,
         foreground: Boolean,
         operation: String
     ): Boolean {
-        val user = UserHandle.getUserHandleForUid(entry.uid)
-        val users = entry.context.getSystemService(UserManager::class.java) ?: return false
-        val restrictions = UserManager::class.java.getMethod("getUserRestrictions", UserHandle::class.java)
+        val user = UserHandle.getUserHandleForUid(uid)
+        val users = context.getSystemService(UserManager::class.java) ?: return false
+        val restrictions = methodOf(UserManager::class.java, "getUserRestrictions", UserHandle::class.java)
             .invoke(users, user) as Bundle
         if (restrictions.getBoolean("no_share_location") || restrictions.getBoolean("no_config_location")) return false
-        val pm = entry.context.packageManager
-        val suspended = pm.javaClass.getMethod("isPackageSuspendedForUser", String::class.java, Int::class.javaPrimitiveType)
-            .invoke(pm, entry.packageName, entry.uid / 100000) as Boolean
+        val pm = context.packageManager
+        val suspended = methodOf(pm.javaClass, "isPackageSuspendedForUser", String::class.java, Int::class.javaPrimitiveType!!)
+            .invoke(pm, packageName, uid / 100000) as Boolean
         if (suspended) return false
         val type = AppOpsManager::class.java
-        val op = type.getMethod("strOpToOp", String::class.java).invoke(null, operation) as Int
-        val defaultMode = type.getMethod("opToDefaultMode", Int::class.javaPrimitiveType).invoke(null, op) as Int
-        val service = type.getDeclaredField("mService").apply { isAccessible = true }.get(appOps)
-        val uidOps = service.javaClass.getMethod("getUidOps", Int::class.javaPrimitiveType, IntArray::class.java)
-            .invoke(service, entry.uid, intArrayOf(op))
-        val packageOps = type.getMethod("getOpsForPackage", Int::class.javaPrimitiveType, String::class.java, IntArray::class.java)
-            .invoke(appOps, entry.uid, entry.packageName, intArrayOf(op))
+        val op = methodOf(type, "strOpToOp", String::class.java).invoke(null, operation) as Int
+        val defaultMode = methodOf(type, "opToDefaultMode", Int::class.javaPrimitiveType!!).invoke(null, op) as Int
+        val service = (members.field(type, "mService") ?: error("Missing AppOps service")).get(appOps)
+        val uidOps = methodOf(service.javaClass, "getUidOps", Int::class.javaPrimitiveType!!, IntArray::class.java)
+            .invoke(service, uid, intArrayOf(op))
+        val packageOps = methodOf(type, "getOpsForPackage", Int::class.javaPrimitiveType!!, String::class.java, IntArray::class.java)
+            .invoke(appOps, uid, packageName, intArrayOf(op))
         fun savedMode(value: Any?): Int? {
             for (pkg in value as? List<*> ?: emptyList<Any>()) {
                 if (pkg == null) continue
-                val operations = pkg.javaClass.getMethod("getOps").invoke(pkg) as List<*>
+                val operations = methodOf(pkg.javaClass, "getOps").invoke(pkg) as List<*>
                 for (operation in operations.filterNotNull()) {
-                    if (operation.javaClass.getMethod("getOp").invoke(operation) == op)
-                        return operation.javaClass.getMethod("getMode").invoke(operation) as Int
+                    if (methodOf(operation.javaClass, "getOp").invoke(operation) == op)
+                        return methodOf(operation.javaClass, "getMode").invoke(operation) as Int
                 }
             }
             return null
@@ -879,15 +889,20 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         module.log(Log.INFO, tag, "Delivery ${entry.packageName}/${entry.provider}: $state")
     }
 
-    private fun realLocationEnabled(entry: Registration): Boolean =
+    private fun realLocationEnabled(entry: Registration): Boolean = realLocationEnabled(entry.context, entry.service, entry.uid)
+
+    private fun realLocationEnabled(context: Context, service: Any, uid: Int): Boolean =
         runCatching {
-            entry.service.javaClass.getMethod("isLocationEnabledForUser", Int::class.javaPrimitiveType)
-                .invoke(entry.service, entry.uid / 100000) as Boolean
+            methodOf(service.javaClass, "isLocationEnabledForUser", Int::class.javaPrimitiveType!!)
+                .invoke(service, uid / 100000) as Boolean
         }.getOrElse {
-            val userContext = Context::class.java.getMethod("createContextAsUser", UserHandle::class.java, Int::class.javaPrimitiveType)
-                .invoke(entry.context, UserHandle.getUserHandleForUid(entry.uid), 0) as Context
+            val userContext = methodOf(Context::class.java, "createContextAsUser", UserHandle::class.java, Int::class.javaPrimitiveType!!)
+                .invoke(context, UserHandle.getUserHandleForUid(uid), 0) as Context
             userContext.getSystemService(LocationManager::class.java).isLocationEnabled
         }
+
+    private fun methodOf(type: Class<*>, name: String, vararg parameters: Class<*>): Method =
+        members.method(type, name, *parameters) ?: error("Missing callback method: $name")
 
     private fun appPackage(context: Context, uid: Int, requested: String? = null): String? {
         if (uid % 100000 < 10000) return null
@@ -906,17 +921,11 @@ internal class SystemActiveLocationHooks(private val module: XposedInterface, pr
         return appPackage(context, uid)
     }
 
-    private fun contextOf(service: Any?): Context? {
-        var type: Class<*>? = service?.javaClass
-        while (type != null) {
-            try { return type.getDeclaredField("mContext").apply { isAccessible = true }.get(service) as? Context }
-            catch (_: NoSuchFieldException) { type = type.superclass }
-        }
-        return null
-    }
+    private fun contextOf(service: Any?): Context? =
+        service?.let { members.field(it.javaClass, "mContext")?.get(it) as? Context }
 
     private fun number(value: Any?, name: String, fallback: Long): Long =
-        (value?.javaClass?.getMethod(name)?.invoke(value) as? Number)?.toLong() ?: fallback
+        (value?.let { methodOf(it.javaClass, name).invoke(it) } as? Number)?.toLong() ?: fallback
 
     private fun reportFailure(error: Throwable) {
         val detail = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error

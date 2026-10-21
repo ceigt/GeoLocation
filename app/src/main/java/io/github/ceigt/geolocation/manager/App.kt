@@ -76,8 +76,8 @@ class App : Application(), XposedServiceHelper.OnServiceListener {
                         _syncError.value = false
                     }
                     if (!scopeSynced) {
-                        scopeSynced = true
                         syncScopeToRemotePreferences(service)
+                        scopeSynced = true
                     }
                     retryDelay = 1000L
                     if (imported && local.getStringSet(PreferenceSync.PENDING, emptySet()).orEmpty().isEmpty()) {
@@ -108,19 +108,8 @@ class App : Application(), XposedServiceHelper.OnServiceListener {
         _syncError.value = false
     }
 
-    private fun syncScopeToRemotePreferences(
-        service: XposedService
-    ) {
-        applicationScope.launch {
-            val targetPackages = try {
-                applicationHookTargets(service.scope).sorted()
-            } catch (e: XposedService.ServiceException) {
-                Log.w(TAG, "Failed to mirror LSPosed target scope", e)
-                return@launch
-            }
-
-            if (App.service === service) PreferencesRepository(this@App).saveTargetApps(targetPackages.toSet())
-        }
+    private suspend fun syncScopeToRemotePreferences(service: XposedService) {
+        val targetPackages = applicationHookTargets(service.scope).toSet()
+        if (App.service === service) PreferencesRepository(this@App).saveTargetApps(targetPackages)
     }
-
 }

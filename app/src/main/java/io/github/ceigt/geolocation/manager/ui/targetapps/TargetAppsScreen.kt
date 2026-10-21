@@ -1,5 +1,8 @@
 package io.github.ceigt.geolocation.manager.ui.targetapps
 
+import android.content.Context
+import android.widget.Toast
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +80,21 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.github.ceigt.geolocation.R
 
+private fun TargetAppsEvent.message(context: Context): String = when (val event = this) {
+    is TargetAppsEvent.ModuleNotActive ->
+        context.getString(R.string.target_apps_module_inactive)
+    is TargetAppsEvent.ScopeRequestFailed ->
+        context.getString(R.string.target_apps_scope_request_failed, event.message)
+    is TargetAppsEvent.Relaunched ->
+        context.getString(R.string.target_apps_relaunching, event.appLabel)
+    is TargetAppsEvent.RelaunchFailed ->
+        context.getString(R.string.target_apps_relaunch_failed, event.appLabel)
+    is TargetAppsEvent.SaveFailed ->
+        context.getString(R.string.setting_save_failed)
+    is TargetAppsEvent.RootRequired ->
+        context.getString(R.string.target_apps_root_required)
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun TargetAppsScreen(
@@ -94,18 +112,7 @@ fun TargetAppsScreen(
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
-            val message = when (event) {
-                is TargetAppsEvent.ModuleNotActive ->
-                    context.getString(R.string.target_apps_module_inactive)
-                is TargetAppsEvent.ScopeRequestFailed ->
-                    context.getString(R.string.target_apps_scope_request_failed, event.message)
-                is TargetAppsEvent.Relaunched ->
-                    context.getString(R.string.target_apps_relaunching, event.appLabel)
-                is TargetAppsEvent.RelaunchFailed ->
-                    context.getString(R.string.target_apps_relaunch_failed, event.appLabel)
-                is TargetAppsEvent.RootRequired ->
-                    context.getString(R.string.target_apps_root_required)
-            }
+            val message = event.message(context)
             snackbarHostState.showSnackbar(message)
         }
     }
@@ -280,6 +287,12 @@ fun TargetAppsBottomSheet(
     viewModel: TargetAppsViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            Toast.makeText(context, event.message(context), Toast.LENGTH_LONG).show()
+        }
+    }
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     // The sheet can grow with its real list content but must stop immediately below the map
     // search area.  Skipping the half-expanded stop removes the extra upward swipe.

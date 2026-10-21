@@ -253,6 +253,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     val allSettings = SettingDefinitions.getSettings(settingsViewModel)
+    val failedSaveRevision by settingsViewModel.failedSaveRevision.collectAsState()
     val categories = SettingDefinitions.getCategories()
     val selectedLanguage = LanguageOption.fromTag(settingsViewModel.languageTag.collectAsState().value)
 
@@ -457,8 +458,8 @@ fun SettingsScreen(
                                 val setting = allSettings.find { it.title == settingTitle }
                                 setting?.let {
                                         when (setting) {
-                                            is DoubleSettingData -> DoubleSettingComposable(setting)
-                                            is FloatSettingData -> FloatSettingComposable(setting)
+                                            is DoubleSettingData -> DoubleSettingComposable(setting, failedSaveRevision)
+                                            is FloatSettingData -> FloatSettingComposable(setting, failedSaveRevision)
                                         }
 
                                 }
@@ -532,6 +533,7 @@ fun SettingsBottomSheet(
     val focusManager = LocalFocusManager.current
     val scrollState = rememberScrollState()
     val allSettings = SettingDefinitions.getSettings(settingsViewModel)
+    val failedSaveRevision by settingsViewModel.failedSaveRevision.collectAsState()
     val categories = SettingDefinitions.getCategories()
     val selectedLanguage = LanguageOption.fromTag(settingsViewModel.languageTag.collectAsState().value)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -677,8 +679,8 @@ fun SettingsBottomSheet(
                     SettingsSheetSection(category) {
                         settingsInCategory.forEachIndexed { index, settingTitle ->
                             when (val setting = allSettings.find { it.title == settingTitle }) {
-                                is DoubleSettingData -> DoubleSettingComposable(setting)
-                                is FloatSettingData -> FloatSettingComposable(setting)
+                                is DoubleSettingData -> DoubleSettingComposable(setting, failedSaveRevision)
+                                is FloatSettingData -> FloatSettingComposable(setting, failedSaveRevision)
                                 null -> Unit
                             }
                             if (index != settingsInCategory.lastIndex) {
@@ -1329,7 +1331,8 @@ fun DoubleSettingItem(
     unit: String,
     minValue: Float,
     maxValue: Float,
-    step: Float
+    step: Float,
+    resetToken: Long = 0L
 ) {
     SettingItem(
         title = title,
@@ -1343,6 +1346,7 @@ fun DoubleSettingItem(
         minValue = minValue,
         maxValue = maxValue,
         step = step,
+        resetToken = resetToken,
         valueFormatter = { "%.2f".format(it) },
         parseValue = { it.toDouble() }
     )
@@ -1360,7 +1364,8 @@ fun FloatSettingItem(
     unit: String,
     minValue: Float,
     maxValue: Float,
-    step: Float
+    step: Float,
+    resetToken: Long = 0L
 ) {
     SettingItem(
         title = title,
@@ -1374,6 +1379,7 @@ fun FloatSettingItem(
         minValue = minValue,
         maxValue = maxValue,
         step = step,
+        resetToken = resetToken,
         valueFormatter = { "%.2f".format(it) },
         parseValue = { it }
     )
@@ -1394,7 +1400,8 @@ private fun <T : Number> SettingItem(
     maxValue: Float,
     step: Float,
     valueFormatter: (T) -> String,
-    parseValue: (Float) -> T
+    parseValue: (Float) -> T,
+    resetToken: Long = 0L
 ) {
     val disableDescription = stringResource(R.string.setting_disable, title)
     val enableDescription = stringResource(R.string.setting_enable, title)
@@ -1449,7 +1456,7 @@ private fun <T : Number> SettingItem(
             var sliderValue by remember { mutableFloatStateOf(value.toFloat()) }
             var showExactValue by remember { mutableStateOf(false) }
 
-            LaunchedEffect(value) {
+            LaunchedEffect(value, resetToken) {
                 if (sliderValue != value.toFloat()) sliderValue = value.toFloat()
             }
 
@@ -1585,7 +1592,7 @@ data class FloatSettingData(
 ) : SettingData()
 
 @Composable
-fun DoubleSettingComposable(setting: DoubleSettingData) {
+fun DoubleSettingComposable(setting: DoubleSettingData, resetToken: Long = 0L) {
     DoubleSettingItem(
         title = setting.title,
         description = setting.description,
@@ -1597,12 +1604,13 @@ fun DoubleSettingComposable(setting: DoubleSettingData) {
         unit = setting.unit,
         minValue = setting.minValue,
         maxValue = setting.maxValue,
-        step = setting.step
+        step = setting.step,
+        resetToken = resetToken
     )
 }
 
 @Composable
-fun FloatSettingComposable(setting: FloatSettingData) {
+fun FloatSettingComposable(setting: FloatSettingData, resetToken: Long = 0L) {
     FloatSettingItem(
         title = setting.title,
         description = setting.description,
@@ -1614,6 +1622,7 @@ fun FloatSettingComposable(setting: FloatSettingData) {
         unit = setting.unit,
         minValue = setting.minValue,
         maxValue = setting.maxValue,
-        step = setting.step
+        step = setting.step,
+        resetToken = resetToken
     )
 }

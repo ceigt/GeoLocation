@@ -71,6 +71,8 @@ APK 必须使用你自己的正式签名。没有 `keystore.properties` 的本�
 
 ## GitHub Actions 自动构建
 
+日常测试版使用 “Verify changes”：推送到 `main` 或 `fixes/**` 分支即执行测试、Lint 和 APK 构建，也可手动选择分支运行。成功后的 `candidate-apks-<提交哈希>` 附件保留 14 天，包含未签名 Release APK 和设备测试客户端；验证报告单独保存。下载 Release APK 后使用现有正式证书在本机签名并校验证书指纹即可安装，签名不需要重新编译。这个流程不上传本机私钥或地图凭据，也不会创建公开 Release。
+
 `.github/workflows/release.yml` 仅可手动触发，并向**已经创建的** GitHub Release 上传 APK。先在仓库 Settings → Secrets and variables → Actions 添加：
 
 2.0 使用本机独立正式签名；本轮没有把私钥自动上传到 Actions。以下前四项为 CI 签名必需项，地图凭据均可留空，由安装者在设置中输入。缺少本地签名配置时，Release 构建保持未签名，不再使用 Debug 证书替代。

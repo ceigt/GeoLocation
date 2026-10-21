@@ -44,6 +44,120 @@ public class LocationRegressionTest {
         point.setLongitude(Double.parseDouble(args.getString("longitude")));
         return point;
     }
+    @Test public void stoppedSimulationDoesNotFillAnEmptyNativeCache() throws Exception {
+        org.junit.Assume.assumeTrue("Run with simulation stopped", "true".equals(
+            InstrumentationRegistry.getArguments().getString("simulationStopped")));
+        requirePermission();
+        String provider = "geolocation_regression_stopped";
+        manager.addTestProvider(provider, new android.location.provider.ProviderProperties.Builder()
+            .setAccuracy(android.location.provider.ProviderProperties.ACCURACY_FINE)
+            .setPowerUsage(android.location.provider.ProviderProperties.POWER_USAGE_LOW).build());
+        CancellationSignal cancellation = new CancellationSignal();
+        try {
+            manager.setTestProviderEnabled(provider, true);
+            assertNull("Stopped simulation synthesized a cached fix", manager.getLastKnownLocation(provider));
+            CountDownLatch done = new CountDownLatch(1);
+            CopyOnWriteArrayList<Location> fixes = new CopyOnWriteArrayList<>();
+            manager.getCurrentLocation(provider, new LocationRequest.Builder(0).setDurationMillis(1000).build(),
+                cancellation, callbacks, fix -> { if (fix != null) fixes.add(fix); done.countDown(); });
+            assertTrue("Native empty one-shot did not finish", done.await(5, TimeUnit.SECONDS));
+            assertTrue("Stopped simulation generated a current fix", fixes.isEmpty());
+        } finally { cancellation.cancel(); manager.removeTestProvider(provider); }
+    }
+
+    @Test public void missingProviderMustNotBecomeAnEmptyCacheFix() {
+        requirePermission();
+        assertNull("Missing provider was turned into a synthetic location",
+            manager.getLastKnownLocation("geolocation_regression_missing"));
+    }
+
+    @Test public void emptyNativeCacheCanReturnAuthorizedSyntheticFix() {
+        requirePermission(); Location point = expected();
+        String provider = "geolocation_regression_empty";
+        android.location.provider.ProviderProperties properties = new android.location.provider.ProviderProperties.Builder()
+            .setAccuracy(android.location.provider.ProviderProperties.ACCURACY_FINE)
+            .setPowerUsage(android.location.provider.ProviderProperties.POWER_USAGE_LOW).build();
+        manager.addTestProvider(provider, properties);
+        try {
+            manager.setTestProviderEnabled(provider, true);
+            // No fix is ever written to this provider, so its native last-known cache is empty.
+            Location fix = manager.getLastKnownLocation(provider);
+            assertNotNull("Empty native cache hid the active simulation", fix);
+            assertTrue("Unexpected synthetic cache location", fix.distanceTo(point) < 200);
+        } finally { manager.removeTestProvider(provider); }
+    }
+
+    @Test public void repeatedWifiScanReadsRemainValidEmptyLists() {
+        requirePermission();
+        android.net.wifi.WifiManager wifi = context.getSystemService(android.net.wifi.WifiManager.class);
+        for (int i = 0; i < 12; i++) {
+            java.util.List<android.net.wifi.ScanResult> results = wifi.getScanResults();
+            assertNotNull("Wi-Fi scan adapter returned null", results);
+            assertTrue("Real network identifiers were exposed", results.isEmpty());
+        }
+    }
+
+    @Test public void currentLocationReturnsSelectedPointOnlyOnce() throws Exception {
+        requirePermission(); Location point = expected();
+        AtomicInteger count = new AtomicInteger(); CountDownLatch first = new CountDownLatch(1);
+        CopyOnWriteArrayList<Location> fixes = new CopyOnWriteArrayList<>();
+        CancellationSignal cancellation = new CancellationSignal();
+        try {
+            manager.getCurrentLocation("gps", new LocationRequest.Builder(0).setDurationMillis(8000).build(),
+                cancellation, callbacks, fix -> { if (fix != null) fixes.add(new Location(fix)); count.incrementAndGet(); first.countDown(); });
+            assertTrue("One-shot request did not complete", first.await(12, TimeUnit.SECONDS));
+            assertEquals("Authorized empty native result was not replaced", 1, fixes.size());
+            assertTrue("Unexpected current location", fixes.get(0).distanceTo(point) < 200);
+            Thread.sleep(1500);
+            assertEquals("Native/synthetic current request completed twice", 1, count.get());
+        } finally { cancellation.cancel(); }
+    }
+
+    @Test public void cancelledCurrentLocationDoesNotCallConsumer() throws Exception {
+        requirePermission();
+        AtomicInteger count = new AtomicInteger();
+        CancellationSignal cancellation = new CancellationSignal();
+        BlockingQueue<Runnable> queued = new LinkedBlockingQueue<>();
+        manager.getCurrentLocation("gps", new LocationRequest.Builder(0).setDurationMillis(1000).build(),
+            cancellation, queued::add, fix -> count.incrementAndGet());
+        cancellation.cancel();
+        Thread.sleep(2000);
+        for (Runnable callback; (callback = queued.poll()) != null;) callback.run();
+        assertEquals("Cancelled request produced a callback", 0, count.get());
+    }
+
+    @Test public void deniedAppOpsDoesNotInventACurrentFix() throws Exception {
+        org.junit.Assume.assumeTrue("Run with both location AppOps denied", "true".equals(
+            InstrumentationRegistry.getArguments().getString("appOpsDenied")));
+        requirePermission();
+        String provider = "geolocation_regression_denied";
+        manager.addTestProvider(provider, new android.location.provider.ProviderProperties.Builder()
+            .setAccuracy(android.location.provider.ProviderProperties.ACCURACY_FINE)
+            .setPowerUsage(android.location.provider.ProviderProperties.POWER_USAGE_LOW).build());
+        CancellationSignal cancellation = new CancellationSignal();
+        try {
+            manager.setTestProviderEnabled(provider, true);
+            assertNull("Denied AppOps received a synthetic cached fix", manager.getLastKnownLocation(provider));
+            CountDownLatch done = new CountDownLatch(1);
+            CopyOnWriteArrayList<Location> fixes = new CopyOnWriteArrayList<>();
+            manager.getCurrentLocation(provider, new LocationRequest.Builder(0).setDurationMillis(1000).build(),
+                cancellation, callbacks, fix -> { if (fix != null) fixes.add(fix); done.countDown(); });
+            assertTrue("Denied native request did not complete", done.await(5, TimeUnit.SECONDS));
+            assertTrue("Denied AppOps received a synthetic current fix", fixes.isEmpty());
+        } catch (SecurityException expectedNativeDenial) {
+            // A ROM may reject the request before its callback instead of returning null.
+        } finally { cancellation.cancel(); manager.removeTestProvider(provider); }
+    }
+
+    @Test public void nativeLocationPermissionDenialIsPreserved() {
+        org.junit.Assume.assumeTrue("Run separately after revoking both location permissions",
+            "true".equals(InstrumentationRegistry.getArguments().getString("noPermission")));
+        assertEquals(PackageManager.PERMISSION_DENIED, context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION));
+        assertEquals(PackageManager.PERMISSION_DENIED, context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION));
+        assertThrows(SecurityException.class, () -> manager.getLastKnownLocation("gps"));
+        assertThrows(SecurityException.class, () -> manager.getCurrentLocation("gps", null, callbacks, fix -> fail("Denied request returned a fix")));
+    }
+
     @Test public void arbitraryLocationObjectsRemainUnchanged() {
         Location history = new Location("history");
         history.setLatitude(12.25); history.setLongitude(23.75);

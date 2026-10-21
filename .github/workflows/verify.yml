@@ -3,7 +3,7 @@ name: Verify changes
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'fixes/**']
   workflow_dispatch:
 
 permissions:
@@ -26,5 +26,34 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - name: Install required Android SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Unit tests, release lint and build verification
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease :app:assembleDebugAndroidTest :regression:assembleDebug :regression:assembleDebugAndroidTest
+        run: >-
+          ./gradlew --no-daemon
+          '-Dorg.gradle.jvmargs=-Xmx4g -XX:+UseG1GC -XX:ReservedCodeCacheSize=256m -Dfile.encoding=UTF-8'
+          --max-workers=2
+          :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintRelease
+          :app:assembleRelease :app:assembleDebugAndroidTest
+          :regression:assembleDebug :regression:assembleDebugAndroidTest
+      - name: Save unsigned candidate and device test APKs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-apks-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
+            regression/build/outputs/apk/debug/*.apk
+            regression/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save verification reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verification-reports-${{ github.sha }}
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-release.*
+          if-no-files-found: ignore
+          retention-days: 14

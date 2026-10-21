@@ -38,8 +38,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _saveError = MutableStateFlow(false)
     val saveError = _saveError.asStateFlow()
     fun clearSaveError() { _saveError.value = false }
+    private val _failedSaveRevision = MutableStateFlow(0L)
+    val failedSaveRevision = _failedSaveRevision.asStateFlow()
     private val writer = SettingsWriter { error ->
         android.util.Log.e("SettingsViewModel", "Setting save failed: ${error.javaClass.simpleName}")
+        _failedSaveRevision.update { it + 1L }
         _saveError.value = true
     }
     private fun enqueueSave(operation: suspend () -> Unit) { writer.enqueue(operation) }

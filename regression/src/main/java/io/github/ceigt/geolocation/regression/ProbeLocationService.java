@@ -16,15 +16,22 @@ public class ProbeLocationService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            stopSelf(); return;
+        }
         getSystemService(NotificationManager.class).createNotificationChannel(
             new NotificationChannel("location-regression", "Location regression", NotificationManager.IMPORTANCE_LOW));
-        startForeground(1, new Notification.Builder(this, "location-regression")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("Location regression running").build(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
-        manager = getSystemService(LocationManager.class);
-        manager.requestLocationUpdates("gps", new LocationRequest.Builder(1000).setDurationMillis(45000).build(),
-            getMainExecutor(), listener);
-        running = true;
+        try {
+            startForeground(1, new Notification.Builder(this, "location-regression")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("Location regression running").build(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            manager = getSystemService(LocationManager.class);
+            manager.requestLocationUpdates("gps", new LocationRequest.Builder(1000).setDurationMillis(45000).build(),
+                getMainExecutor(), listener);
+            running = true;
+        } catch (SecurityException denied) { stopSelf(); }
+
     }
     @Override public int onStartCommand(Intent intent, int flags, int startId) { return START_NOT_STICKY; }
     @Override public IBinder onBind(Intent intent) { return null; }

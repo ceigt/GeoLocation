@@ -14,6 +14,7 @@ import io.github.ceigt.geolocation.data.applicationHookTargets
 import io.github.ceigt.geolocation.data.repository.PreferencesRepository
 import io.github.ceigt.geolocation.manager.App
 import io.github.ceigt.geolocation.manager.control.RootCommands
+import io.github.ceigt.geolocation.manager.ui.settings.SettingsWriter
 import io.github.libxposed.service.XposedService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -81,6 +82,7 @@ sealed interface TargetAppsEvent {
     data class Relaunched(val appLabel: String) : TargetAppsEvent
     data class RelaunchFailed(val appLabel: String) : TargetAppsEvent
     data object RootRequired : TargetAppsEvent
+    data object SaveFailed : TargetAppsEvent
 }
 
 /**
@@ -100,6 +102,11 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _events = MutableSharedFlow<TargetAppsEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<TargetAppsEvent> = _events.asSharedFlow()
+    private val writer = SettingsWriter {
+        Log.e("TargetAppsViewModel", "Setting save failed: ${it.javaClass.simpleName}")
+        _events.tryEmit(TargetAppsEvent.SaveFailed)
+    }
+    override fun onCleared() { writer.close(); super.onCleared() }
 
     /**
      * Some ROMs show their "allow app list access" dialog only after the first PackageManager
@@ -124,8 +131,8 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun cycleCoordinateSystem(packageName: String) {
-        val current = _uiState.value.appCoordinateSystems[packageName] ?: CoordinateSystem.WGS84
-        viewModelScope.launch {
+        writer.enqueue {
+            val current = preferencesRepository.getAppCoordinateSystems()[packageName] ?: CoordinateSystem.WGS84
             preferencesRepository.saveAppCoordinateSystem(packageName, current.next())
         }
     }
@@ -302,7 +309,7 @@ class TargetAppsViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val targetApps = applicationHookTargets(scope)
-        preferencesRepository.saveTargetApps(targetApps)
+        writer.enqueue { preferencesRepository.saveTargetApps(targetApps) }
     }
 
     private fun setPending(packageName: String, pending: Boolean) {
