@@ -14,7 +14,10 @@
     <string name="sponsor_entry_title">Support development</string>
     <string name="sponsor_entry_summary">Voluntarily support ongoing maintenance</string>
     <string name="sponsor_dialog_summary">If GeoLocation helps with your testing or development, voluntary support is welcome to help maintain the project. Support does not unlock features or affect normal use.</string>
-    <string name="sponsor_disclaimer">No donation or payment address is configured in this independent build.</string>
+    <string name="sponsor_disclaimer">Opens PayPal, where you can choose your donation amount.</string>
+    <string name="sponsor_paypal_action">PayPal · KnoxLeo</string>
+    <string name="sponsor_paypal_url" translatable="false">https://www.paypal.me/KnoxLeo</string>
+    <string name="sponsor_open_failed">Unable to open the link. Please install or enable a browser and try again.</string>
 
     <string name="language_system">System default</string>
     <string name="language_english">English</string>

@@ -1,8 +1,10 @@
 package io.github.ceigt.geolocation.manager.ui.map
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.snap
@@ -1084,6 +1086,8 @@ private fun GeoLocationAboutSheet(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun GeoLocationSponsorSheet(onDismissRequest: () -> Unit) {
+    val context = LocalContext.current
+    val paymentUrl = stringResource(R.string.sponsor_paypal_url)
     HtmlModalSheet(
         onDismissRequest = onDismissRequest,
         title = stringResource(R.string.sponsor_title),
@@ -1094,6 +1098,18 @@ private fun GeoLocationSponsorSheet(onDismissRequest: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 21.sp),
             color = Color(0xFF607981)
         )
+        TextButton(
+            onClick = {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(paymentUrl)))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(context, R.string.sponsor_open_failed, Toast.LENGTH_LONG).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth().padding(top = 14.dp)
+        ) {
+            Text(stringResource(R.string.sponsor_paypal_action))
+        }
         Text(
             text = stringResource(R.string.sponsor_disclaimer),
             style = MaterialTheme.typography.bodySmall.copy(lineHeight = 19.sp),

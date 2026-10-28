@@ -28,9 +28,13 @@ GeoLocation 是一个面向自有设备和已授权测试环境的 Android 11+ �
 - Debug 使用独立测试签名；补充变更验证工作流并修复正式发布流程的构建引用和仓库定位。
 - Android 16 实机已验证：WiFi 连接、模拟位置开启，系统定位开启或关闭时，企业微信、微信、京东、美团、高德地图均能定位到模拟位置（用户反馈）。检查范围与后续优化建议见 [检查与实测记录](docs/REVIEW_ICON_WEBVIEW_2.1.7.md)。
 
+## 2.1.8 稳定性修复
+
+修复已知问题，提高模块稳定性。
+
 ## 安装
 
-1. 安装 [2.1.7 正式 Release](https://github.com/ceigt/GeoLocation/releases/tag/20107-2.1.7) 附件中的正式签名 APK，Android 11 或更高版本。
+1. 安装 [2.1.8 正式 Release](https://github.com/ceigt/GeoLocation/releases/tag/20108-2.1.8) 附件中的正式签名 APK，Android 11 或更高版本。
 2. 在支持 libxposed API 101 的新版 LSPosed 中启用 GeoLocation。
 3. 应用级模式在“受影响的应用”中选择目标；系统级模式只需在 LSPosed 中勾选 System Framework、Android System 和 Phone Services。切换作用域后重启设备。
 4. 在地图上选点，按需设置坐标系和位置参数，然后开始模拟。

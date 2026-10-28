@@ -14,7 +14,9 @@
     <string name="sponsor_entry_title">赞助开发</string>
     <string name="sponsor_entry_summary">自愿支持项目后续维护</string>
     <string name="sponsor_dialog_summary">如果 GeoLocation 对你的测试或开发工作有所帮助，欢迎自愿赞助以支持后续维护。赞助不会解锁任何功能，也不会影响应用的正常使用。</string>
-    <string name="sponsor_disclaimer">此独立版本未配置任何捐赠或付款地址。</string>
+    <string name="sponsor_disclaimer">将打开 PayPal 收款页面，金额由你自行选择。</string>
+    <string name="sponsor_paypal_action">PayPal · KnoxLeo</string>
+    <string name="sponsor_open_failed">无法打开链接，请安装或启用浏览器后重试。</string>
 
     <string name="language_system">跟随系统</string>
     <string name="language_english">英语</string>
